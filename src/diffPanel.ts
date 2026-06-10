@@ -1,0 +1,302 @@
+import * as vscode from "vscode";
+import { getWebviewHtml } from "./webview/html";
+import { getHeadVersion } from "./git/gitService";
+import type { DiffInitPayload, WebviewMessage } from "./shared/protocol";
+
+/**
+ * Persisted across reloads via the webview panel's serialized state so the diff
+ * can be reconstructed. `leftSource` selects how the left side's text is
+ * derived: a file URI, a file's HEAD version, or inline text.
+ */
+interface DiffPanelState {
+  fileName: string;
+  leftLabel: string;
+  rightLabel: string;
+  rightEditable: boolean;
+  /** Right side is always a real file URI (string) or inline text. */
+  rightUri?: string;
+  rightText?: string;
+  /** Left side: a file URI, the HEAD version of a URI, or inline text. */
+  leftSource: "uri" | "head" | "text";
+  leftUri?: string;
+  leftText?: string;
+}
+
+/**
+ * Hosts the JetBrains-style 2-way diff inside a webview panel (reusing the same
+ * bundle/HTML as the merge editor). The right pane can be editable and synced
+ * back to its backing file; the panel survives reload via the serializer below.
+ */
+export class DiffPanel {
+  public static readonly viewType = "jbMerge.diffView";
+
+  /** Open panels by content key, so re-running a diff reveals the existing tab. */
+  private static readonly open = new Map<string, DiffPanel>();
+
+  public static register(
+    context: vscode.ExtensionContext,
+  ): vscode.Disposable {
+    return vscode.window.registerWebviewPanelSerializer(DiffPanel.viewType, {
+      async deserializeWebviewPanel(
+        panel: vscode.WebviewPanel,
+        state: unknown,
+      ): Promise<void> {
+        const restored = state as DiffPanelState | undefined;
+        if (!restored) {
+          panel.dispose();
+          return;
+        }
+        const instance = new DiffPanel(context, panel, restored);
+        await instance.init();
+      },
+    });
+  }
+
+  /** Opens a diff panel for the given state, reusing an existing one. */
+  public static async create(
+    context: vscode.ExtensionContext,
+    state: DiffPanelState,
+  ): Promise<void> {
+    const key = panelKey(state);
+    const existing = key ? DiffPanel.open.get(key) : undefined;
+    if (existing && !existing.disposed) {
+      // No-arg reveal keeps the panel in whatever column it already lives in.
+      existing.panel.reveal();
+      await existing.sendInit();
+      return;
+    }
+    const panel = vscode.window.createWebviewPanel(
+      DiffPanel.viewType,
+      diffTitle(state),
+      vscode.ViewColumn.Active,
+      { retainContextWhenHidden: true },
+    );
+    const instance = new DiffPanel(context, panel, state);
+    await instance.init();
+  }
+
+  private readonly disposables: vscode.Disposable[] = [];
+  private readonly key?: string;
+  private refreshTimer?: ReturnType<typeof setTimeout>;
+  private applyingEdit = false;
+  private disposed = false;
+
+  private constructor(
+    private readonly context: vscode.ExtensionContext,
+    private readonly panel: vscode.WebviewPanel,
+    private readonly state: DiffPanelState,
+  ) {
+    this.key = panelKey(state);
+  }
+
+  private async init(): Promise<void> {
+    if (this.key) {
+      DiffPanel.open.set(this.key, this);
+    }
+    const webview = this.panel.webview;
+    webview.options = {
+      enableScripts: true,
+      localResourceRoots: [
+        vscode.Uri.joinPath(this.context.extensionUri, "dist"),
+      ],
+    };
+    webview.html = getWebviewHtml(webview, this.context.extensionUri);
+    this.panel.title = diffTitle(this.state);
+
+    this.disposables.push(
+      webview.onDidReceiveMessage((raw: unknown) => {
+        const message = raw as WebviewMessage | undefined;
+        switch (message?.type) {
+          case "ready":
+            void this.sendInit();
+            break;
+          case "diffChanged":
+            void this.syncRight(message.text);
+            break;
+          default:
+            break;
+        }
+      }),
+    );
+
+    this.watchDocuments();
+
+    this.panel.onDidDispose(() => {
+      this.disposed = true;
+      if (this.key && DiffPanel.open.get(this.key) === this) {
+        DiffPanel.open.delete(this.key);
+      }
+      if (this.refreshTimer) {
+        clearTimeout(this.refreshTimer);
+        this.refreshTimer = undefined;
+      }
+      for (const d of this.disposables) {
+        d.dispose();
+      }
+      this.disposables.length = 0;
+    });
+  }
+
+  /**
+   * Keeps the diff live: when a backing document changes (the user typing in
+   * a normal editor tab, the merge editor syncing the same file, a refactor…),
+   * a fresh payload is pushed and the webview re-diffs in place.
+   */
+  private watchDocuments(): void {
+    const watched = new Set<string>();
+    if (this.state.rightUri) {
+      watched.add(vscode.Uri.parse(this.state.rightUri).toString());
+    }
+    if (this.state.leftSource === "uri" && this.state.leftUri) {
+      watched.add(vscode.Uri.parse(this.state.leftUri).toString());
+    }
+    if (watched.size === 0) {
+      return;
+    }
+    this.disposables.push(
+      vscode.workspace.onDidChangeTextDocument((event) => {
+        if (
+          this.applyingEdit ||
+          event.contentChanges.length === 0 ||
+          !watched.has(event.document.uri.toString())
+        ) {
+          return;
+        }
+        if (this.refreshTimer) {
+          clearTimeout(this.refreshTimer);
+        }
+        this.refreshTimer = setTimeout(() => {
+          this.refreshTimer = undefined;
+          void this.sendInit();
+        }, 250);
+      }),
+    );
+  }
+
+  /** Resolves both sides' text and posts the diffInit payload. */
+  private async sendInit(): Promise<void> {
+    if (this.disposed) {
+      return;
+    }
+    try {
+      const payload = await this.buildPayload();
+      if (this.disposed) {
+        return; // panel closed while the payload was being resolved
+      }
+      void this.panel.webview.postMessage({ type: "diffInit", ...payload });
+      void this.panel.webview.postMessage({
+        type: "persistState",
+        state: this.state,
+      });
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      void vscode.window.showErrorMessage(
+        `Merge Studio: failed to load — ${reason}`,
+      );
+    }
+  }
+
+  private async buildPayload(): Promise<DiffInitPayload> {
+    const leftText = await this.resolveLeftText();
+    const rightText = await this.resolveRightText();
+    return {
+      fileName: this.state.fileName,
+      leftLabel: this.state.leftLabel,
+      rightLabel: this.state.rightLabel,
+      leftText,
+      rightText,
+      rightEditable: this.state.rightEditable && this.state.rightUri !== undefined,
+    };
+  }
+
+  private async resolveLeftText(): Promise<string> {
+    switch (this.state.leftSource) {
+      case "text":
+        return this.state.leftText ?? "";
+      case "uri":
+        return this.state.leftUri
+          ? readUriText(vscode.Uri.parse(this.state.leftUri))
+          : "";
+      case "head": {
+        if (!this.state.leftUri) {
+          return "";
+        }
+        const head = await getHeadVersion(vscode.Uri.parse(this.state.leftUri));
+        return head?.text ?? "";
+      }
+      default:
+        return "";
+    }
+  }
+
+  private async resolveRightText(): Promise<string> {
+    if (this.state.rightUri) {
+      return readUriText(vscode.Uri.parse(this.state.rightUri));
+    }
+    return this.state.rightText ?? "";
+  }
+
+  /** Writes the edited right text back to its backing file. */
+  private async syncRight(text: string): Promise<void> {
+    if (!this.state.rightEditable || !this.state.rightUri) {
+      return;
+    }
+    const uri = vscode.Uri.parse(this.state.rightUri);
+    const document = await vscode.workspace.openTextDocument(uri);
+    if (document.getText() === text) {
+      return;
+    }
+    const edit = new vscode.WorkspaceEdit();
+    const fullRange = new vscode.Range(
+      new vscode.Position(0, 0),
+      new vscode.Position(document.lineCount, 0),
+    );
+    edit.replace(uri, fullRange, text);
+    // The webview already shows this text; don't bounce it back as a refresh.
+    this.applyingEdit = true;
+    try {
+      await vscode.workspace.applyEdit(edit);
+    } finally {
+      this.applyingEdit = false;
+    }
+  }
+}
+
+async function readUriText(uri: vscode.Uri): Promise<string> {
+  // Prefer an open document (picks up unsaved edits); fall back to disk.
+  const open = vscode.workspace.textDocuments.find(
+    (d) => d.uri.toString() === uri.toString(),
+  );
+  if (open) {
+    return open.getText();
+  }
+  const document = await vscode.workspace.openTextDocument(uri);
+  return document.getText();
+}
+
+function diffTitle(state: DiffPanelState): string {
+  const base = state.fileName.split(/[\\/]/).pop() ?? state.fileName;
+  return `Diff: ${base}`;
+}
+
+/**
+ * Stable identity for panel reuse. URI-backed diffs reuse one panel per
+ * (left source, right file) pair; inline-text diffs have no stable identity
+ * and always open fresh.
+ */
+function panelKey(state: DiffPanelState): string | undefined {
+  if (state.leftSource === "text" || !state.rightUri) {
+    return undefined;
+  }
+  return [
+    state.fileName,
+    state.leftSource,
+    state.leftUri ?? "",
+    state.rightUri,
+    state.leftLabel,
+    state.rightLabel,
+    String(state.rightEditable),
+  ].join("\u0000");
+}
+
+export type { DiffPanelState };

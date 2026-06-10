@@ -1,0 +1,22 @@
+<svg width="256" height="256" viewBox="0 0 256 256" xmlns="http://www.w3.org/2000/svg">
+  <!-- JetBrains-style Merge & Diff: two panes, three change bands, ribbons.
+       Same simplified mark as the Conflicts page header — reads at 32px. -->
+  <rect width="256" height="256" rx="56" fill="#1E222A"/>
+
+  <!-- panes -->
+  <rect x="36" y="44" width="76" height="168" rx="12" fill="#333B4A"/>
+  <rect x="144" y="44" width="76" height="168" rx="12" fill="#333B4A"/>
+
+  <!-- conflict band on both sides, bridged across the gutter -->
+  <rect x="36" y="72" width="76" height="30" fill="#E06A52"/>
+  <rect x="144" y="72" width="76" height="30" fill="#E06A52"/>
+  <rect x="112" y="72" width="32" height="30" fill="#E06A52" opacity="0.6"/>
+
+  <!-- insertion on the left: band + ribbon tapering to the right -->
+  <rect x="36" y="126" width="76" height="30" fill="#57A75F"/>
+  <path d="M112 126 L144 139 L144 143 L112 156 Z" fill="#57A75F" opacity="0.6"/>
+
+  <!-- modification on the right: band + ribbon tapering to the left -->
+  <rect x="144" y="178" width="76" height="30" fill="#4A86C8"/>
+  <path d="M144 178 L112 191 L112 195 L144 208 Z" fill="#4A86C8" opacity="0.6"/>
+</svg>

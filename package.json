@@ -1,0 +1,220 @@
+{
+  "name": "merge-studio",
+  "displayName": "Merge Studio — JetBrains-Style Merge & Diff",
+  "description": "Resolve merge conflicts like in JetBrains IDEs (IntelliJ, PyCharm, WebStorm): a 3-way merge editor with ribbons, undo history and a conflicts dialog, plus side-by-side diff — for VS Code and Cursor.",
+  "version": "0.1.0",
+  "publisher": "anton-arnaudov",
+  "license": "MIT",
+  "icon": "media/icon.png",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/antonarnaudov/merge-studio.git"
+  },
+  "bugs": {
+    "url": "https://github.com/antonarnaudov/merge-studio/issues"
+  },
+  "homepage": "https://github.com/antonarnaudov/merge-studio#readme",
+  "sponsor": {
+    "url": "https://github.com/sponsors/antonarnaudov"
+  },
+  "galleryBanner": {
+    "color": "#1E222A",
+    "theme": "dark"
+  },
+  "engines": {
+    "vscode": "^1.74.0"
+  },
+  "categories": [
+    "SCM Providers",
+    "Other"
+  ],
+  "keywords": [
+    "merge",
+    "merge conflict",
+    "merge editor",
+    "3-way merge",
+    "three-way merge",
+    "conflict resolver",
+    "diff",
+    "git",
+    "jetbrains",
+    "intellij",
+    "pycharm",
+    "webstorm"
+  ],
+  "main": "./dist/extension.js",
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "extensionDependencies": [
+    "vscode.git"
+  ],
+  "contributes": {
+    "configuration": {
+      "title": "Merge Studio",
+      "properties": {
+        "jbMerge.conflictResolver": {
+          "type": "string",
+          "enum": ["jetbrains", "webview"],
+          "enumDescriptions": [
+            "Launch the real installed JetBrains IDE merge window (exact 1:1).",
+            "Use the built-in embedded merge editor (no external IDE needed)."
+          ],
+          "default": "webview",
+          "description": "Which resolver to use for conflicts. 'webview' uses the embedded editor; 'jetbrains' opens the real installed IDE."
+        },
+        "jbMerge.preferredIde": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "webstorm",
+            "pycharm",
+            "intellij",
+            "phpstorm",
+            "goland",
+            "clion",
+            "rider",
+            "rubymine",
+            "datagrip"
+          ],
+          "default": "auto",
+          "description": "Which installed JetBrains IDE to launch. 'auto' picks the first one found."
+        },
+        "jbMerge.jetbrainsPath": {
+          "type": "string",
+          "default": "",
+          "description": "Explicit path to a JetBrains IDE launcher (overrides auto-detection). e.g. /Users/you/Applications/WebStorm.app/Contents/MacOS/webstorm"
+        },
+        "jbMerge.autoOpen": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically open conflicted files with the selected resolver (supersedes the built-in merge editor)."
+        }
+      }
+    },
+    "customEditors": [
+      {
+        "viewType": "jbMerge.mergeEditor",
+        "displayName": "Merge Studio Merge Editor",
+        "selector": [
+          {
+            "filenamePattern": "*"
+          }
+        ],
+        "priority": "option"
+      }
+    ],
+    "commands": [
+      {
+        "command": "jbMerge.mergeWithJetBrains",
+        "title": "Merge with JetBrains IDE",
+        "category": "Merge Studio"
+      },
+      {
+        "command": "jbMerge.diffWithJetBrains",
+        "title": "Diff with JetBrains IDE",
+        "category": "Merge Studio"
+      },
+      {
+        "command": "jbMerge.resolveInMergeEditor",
+        "title": "Resolve in Embedded Merge Editor",
+        "category": "Merge Studio"
+      },
+      {
+        "command": "jbMerge.showConflicts",
+        "title": "Resolve Conflicts…",
+        "category": "Merge Studio"
+      },
+      {
+        "command": "jbMerge.openDiff",
+        "title": "Open in Embedded Diff",
+        "category": "Merge Studio"
+      },
+      {
+        "command": "jbMerge.openChanges",
+        "title": "Open Changes (Embedded Diff)",
+        "category": "Merge Studio"
+      }
+    ],
+    "menus": {
+      "scm/resourceGroup/context": [
+        {
+          "command": "jbMerge.showConflicts",
+          "when": "scmProvider == git && scmResourceGroup == merge",
+          "group": "1_modification@1"
+        }
+      ],
+      "scm/resourceState/context": [
+        {
+          "command": "jbMerge.resolveInMergeEditor",
+          "when": "scmProvider == git && scmResourceGroup == merge",
+          "group": "1_modification@1"
+        },
+        {
+          "command": "jbMerge.mergeWithJetBrains",
+          "when": "scmProvider == git && scmResourceGroup == merge && jbMerge.ideAvailable",
+          "group": "1_modification@2"
+        }
+      ],
+      "editor/title": [
+        {
+          "command": "jbMerge.resolveInMergeEditor",
+          "when": "config.git.enabled && !git.missing && resource in git.mergeChanges && git.activeResourceHasMergeConflicts",
+          "group": "navigation"
+        },
+        {
+          "command": "jbMerge.mergeWithJetBrains",
+          "when": "config.git.enabled && !git.missing && resource in git.mergeChanges && git.activeResourceHasMergeConflicts && jbMerge.ideAvailable",
+          "group": "navigation"
+        },
+        {
+          "command": "jbMerge.openChanges",
+          "when": "config.git.enabled && !git.missing && resourceScheme == file && gitOpenRepositoryCount != 0",
+          "group": "navigation"
+        }
+      ],
+      "explorer/context": [
+        {
+          "command": "jbMerge.openDiff",
+          "group": "3_compare@1"
+        },
+        {
+          "command": "jbMerge.diffWithJetBrains",
+          "when": "jbMerge.ideAvailable",
+          "group": "3_compare@2"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "jbMerge.diffWithJetBrains"
+        },
+        {
+          "command": "jbMerge.openDiff"
+        },
+        {
+          "command": "jbMerge.resolveInMergeEditor",
+          "when": "false"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "compile": "node esbuild.js",
+    "watch": "node esbuild.js --watch",
+    "package": "node esbuild.js --production",
+    "check-types": "tsc --noEmit && tsc -p test/tsconfig.json",
+    "test": "tsx --test \"test/**/*.test.ts\"",
+    "vscode:prepublish": "npm run package"
+  },
+  "devDependencies": {
+    "@types/node": "^20.19.42",
+    "@types/vscode": "1.74.0",
+    "esbuild": "^0.28.0",
+    "tsx": "^4.22.4",
+    "typescript": "^6.0.3"
+  },
+  "dependencies": {
+    "monaco-editor": "^0.55.1",
+    "vscode-diff": "^3.0.1"
+  }
+}
