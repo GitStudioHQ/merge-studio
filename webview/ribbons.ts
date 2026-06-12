@@ -126,34 +126,50 @@ export class RibbonOverlay {
       const rightPending =
         !!block.right && !this.options.isSideDone?.(block, "right");
 
-      if (leftPending && block.left) {
-        const side = spanY(this.editors.left, block.left.sideSpan, lineHeight);
-        const result = spanY(this.editors.result, resultSpan, lineHeight);
-        appendRibbon(this.svg, gutterA, height, side, result, role, {
-          strip: { side: "a", width: MERGE_ICON_STRIP },
-          // The frame line runs from the stage's left edge (left pane) to
-          // the result pane's right edge — or only to gutter B's start when
-          // gutter B draws the rest, so the translucent stroke never
-          // composites twice.
-          frame:
-            role === "conflict"
-              ? { fromX: 0, toX: rightPending ? gutterA.left + gutterA.width : gutterB.left }
-              : undefined,
+      const sideL =
+        leftPending && block.left
+          ? spanY(this.editors.left, block.left.sideSpan, lineHeight)
+          : undefined;
+      const sideR =
+        rightPending && block.right
+          ? spanY(this.editors.right, block.right.sideSpan, lineHeight)
+          : undefined;
+      const result = spanY(this.editors.result, resultSpan, lineHeight);
+
+      if (sideL) {
+        appendRibbon(this.svg, gutterA, height, sideL, result, role, {
+          side: "a",
+          width: MERGE_ICON_STRIP,
         });
       }
-      if (rightPending && block.right) {
-        const result = spanY(this.editors.result, resultSpan, lineHeight);
-        const side = spanY(
-          this.editors.right,
-          block.right.sideSpan,
-          lineHeight,
-        );
-        appendRibbon(this.svg, gutterB, height, result, side, role, {
-          strip: { side: "b", width: MERGE_ICON_STRIP },
-          frame:
-            role === "conflict"
-              ? { fromX: gutterA.left + gutterA.width, toX: stageWidth }
-              : undefined,
+      if (sideR) {
+        appendRibbon(this.svg, gutterB, height, result, sideR, role, {
+          side: "b",
+          width: MERGE_ICON_STRIP,
+        });
+      }
+
+      // Conflict frame: ONE path per edge spanning every covered column, so
+      // every bend (strip boundaries AND pane junctions) is an interior
+      // vertex and gets rounded — path endpoints can't be.
+      if (role === "conflict" && (sideL || sideR)) {
+        appendFrame(this.svg, height, {
+          top: framePolyline(
+            sideL?.[0],
+            result[0],
+            sideR?.[0],
+            gutterA,
+            gutterB,
+            stageWidth,
+          ),
+          bottom: framePolyline(
+            sideL?.[1],
+            result[1],
+            sideR?.[1],
+            gutterA,
+            gutterB,
+            stageWidth,
+          ),
         });
       }
     }
@@ -227,7 +243,8 @@ export class DiffRibbonOverlay {
       const left = spanY(this.editors.left, block.leftSpan, lineHeight);
       const right = spanY(this.editors.right, block.rightSpan, lineHeight);
       appendRibbon(this.svg, gutter, height, left, right, block.role, {
-        strip: { side: "a", width: DIFF_ICON_STRIP },
+        side: "a",
+        width: DIFF_ICON_STRIP,
       });
     }
   }
@@ -276,10 +293,7 @@ function appendRibbon(
   a: [number, number],
   b: [number, number],
   role: string,
-  options: {
-    strip?: IconStrip;
-    frame?: { fromX: number; toX: number };
-  } = {},
+  strip?: IconStrip,
 ): void {
   const [aTop, aBottom] = a;
   const [bTop, bBottom] = b;
@@ -291,15 +305,13 @@ function appendRibbon(
   const x1 = gutter.left + gutter.width;
   // x of the strip boundary; degrade to a plain trapezoid when the gutter is
   // too narrow for a meaningful slant region.
-  const stripWidth = options.strip
-    ? Math.min(options.strip.width, gutter.width - 8)
-    : 0;
+  const stripWidth = strip ? Math.min(strip.width, gutter.width - 8) : 0;
   const topPoints: Array<[number, number]> = [];
   const bottomPoints: Array<[number, number]> = [];
-  if (options.strip && stripWidth > 0 && options.strip.side === "a") {
+  if (strip && stripWidth > 0 && strip.side === "a") {
     topPoints.push([x0, aTop], [x0 + stripWidth, aTop], [x1, bTop]);
     bottomPoints.push([x0, aBottom], [x0 + stripWidth, aBottom], [x1, bBottom]);
-  } else if (options.strip && stripWidth > 0 && options.strip.side === "b") {
+  } else if (strip && stripWidth > 0 && strip.side === "b") {
     topPoints.push([x0, aTop], [x1 - stripWidth, bTop], [x1, bTop]);
     bottomPoints.push([x0, aBottom], [x1 - stripWidth, bBottom], [x1, bBottom]);
   } else {
@@ -318,25 +330,62 @@ function appendRibbon(
   path.setAttribute("d", d);
   path.setAttribute("class", `jb-ribbon jb-ribbon-${role}`);
   target.appendChild(path);
+}
 
-  if (options.frame) {
-    // Each frame edge is ONE path from fromX to toX — across pane, gutter,
-    // and pane — so it cannot mismatch itself the way pane CSS borders and
-    // separate gutter strokes used to. +0.5 keeps the 1px stroke crisp.
-    const { fromX, toX } = options.frame;
-    const withFrame = (points: Array<[number, number]>) => {
-      const extended = points.slice();
-      if (fromX < points[0][0]) {
-        extended.unshift([fromX, points[0][1]]);
-      }
-      if (toX > points[points.length - 1][0]) {
-        extended.push([toX, points[points.length - 1][1]]);
-      }
-      return extended;
-    };
-    appendEdge(target, roundedPath(withFrame(topPoints), 0.5));
-    appendEdge(target, roundedPath(withFrame(bottomPoints), 0.5));
+/**
+ * One conflict frame edge (top or bottom) as a single polyline across every
+ * column the conflict still covers: left pane → gutter A (strip, then
+ * slant) → result pane → gutter B (slant, then strip) → right pane. Sides
+ * already resolved (undefined y) shorten the line accordingly.
+ */
+function framePolyline(
+  leftY: number | undefined,
+  resultY: number,
+  rightY: number | undefined,
+  gutterA: GutterRange,
+  gutterB: GutterRange,
+  stageWidth: number,
+): Array<[number, number]> {
+  const points: Array<[number, number]> = [];
+  const aRight = gutterA.left + gutterA.width;
+  const bRight = gutterB.left + gutterB.width;
+  if (leftY !== undefined) {
+    const stripEnd =
+      gutterA.left + Math.min(MERGE_ICON_STRIP, gutterA.width - 8);
+    points.push(
+      [0, leftY],
+      [gutterA.left, leftY],
+      [stripEnd, leftY],
+      [aRight, resultY],
+    );
+  } else {
+    points.push([aRight, resultY]);
   }
+  points.push([gutterB.left, resultY]);
+  if (rightY !== undefined) {
+    const stripStart =
+      bRight - Math.min(MERGE_ICON_STRIP, gutterB.width - 8);
+    points.push([stripStart, rightY], [bRight, rightY], [stageWidth, rightY]);
+  }
+  return points;
+}
+
+/** Draws a block's two frame edges, culled when fully outside the viewport. */
+function appendFrame(
+  target: SVGElement,
+  height: number,
+  frame: {
+    top: Array<[number, number]>;
+    bottom: Array<[number, number]>;
+  },
+): void {
+  const ys = [...frame.top, ...frame.bottom].map(([, y]) => y);
+  if (Math.max(...ys) < 0 || Math.min(...ys) > height) {
+    return;
+  }
+  // +0.5 keeps the 1px stroke crisp on its pixel row.
+  appendEdge(target, roundedPath(frame.top, 0.5));
+  appendEdge(target, roundedPath(frame.bottom, 0.5));
 }
 
 /**

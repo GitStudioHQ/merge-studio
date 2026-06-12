@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.7
+
+- Conflict frame edges are now one single path spanning every covered column (left pane, gutter A, result, gutter B, right pane). Previously the line was split per gutter, leaving the bend at the gutter-A/result junction on a path endpoint — which cannot be rounded — so the left side showed sharp corners while the right side was smooth. All bends are interior vertices now, all rounded, verified in the browser harness at retina scale.
+
 ## 0.1.6
 
 - Fixed the ribbon stage rendering at its intrinsic 300×150px size: SVG is a replaced element, so `left/right` insets alone don't stretch it — everything beyond ~300px (gutter bands, frame lines over the result and right panes) was silently clipped. The stage now gets explicit width/height. Verified end-to-end in a real-browser harness (`test-harness/`): continuous frame lines across all five columns, band fills, scrolled states, and retina rendering, with path geometry checked numerically.
