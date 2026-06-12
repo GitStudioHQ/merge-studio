@@ -298,6 +298,15 @@ function startMerge(root: HTMLElement, first: MergeInitPayload & { type: "init" 
     counts = next;
     updateMergeToolbar(counter, counts);
     magicBtn.disabled = !view.hasSimpleConflicts();
+    // Resolution buttons deactivate once they have nothing left to do (and
+    // re-activate on undo/reset, since this fires on every state change).
+    const nothingPending = counts.pending === 0;
+    acceptLeftBtn.disabled = nothingPending;
+    acceptRightBtn.disabled = nothingPending;
+    const nonConflictingPending = counts.pending - counts.conflictsPending;
+    applyLeftBtn.disabled = nonConflictingPending === 0;
+    applyAllBtn.disabled = nonConflictingPending === 0;
+    applyRightBtn.disabled = nonConflictingPending === 0;
     // Any new resolution activity (including Reset) re-arms Apply after a
     // completed merge and clears a pending two-step confirmation.
     applyBtn.disabled = false;
