@@ -29,7 +29,9 @@ type Editor = monaco.editor.IStandaloneCodeEditor;
 type AcceptMode = "auto" | "replace" | "append";
 
 /** Pixel height of the ✕/≫ action row drawn in the gutter strips. */
-const ACTION_ROW_HEIGHT = 20;
+// Must fit inside one code line so the icon row stays within its band row
+// (line height is typically 18-19px); width can be larger than height.
+const ACTION_ROW_HEIGHT = 18;
 
 export interface MergeRenderOptions {
   whitespace: WhitespaceMode;
@@ -85,7 +87,10 @@ const SHARED_OPTIONS: monaco.editor.IStandaloneEditorConstructionOptions = {
   wordWrap: "off",
   fixedOverflowWidgets: true,
   stickyScroll: { enabled: false },
-  smoothScrolling: true,
+  // No scroll animation: the three panes + two gutter overlays must move in
+  // lockstep, and smooth scrolling makes them animate through transiently
+  // different offsets (bands/frames visibly detach from the panes mid-scroll).
+  smoothScrolling: false,
 };
 
 /** Side panes lean on sync-scroll; hiding their vertical bars keeps the
@@ -812,10 +817,12 @@ export class MergeView {
       const top =
         editor.getTopForLineNumber(span.start) - editor.getScrollTop();
       // Center the icon row on the first line (or on the boundary for
-      // insertion points), like IntelliJ anchors its gutter actions.
+      // insertion points), like IntelliJ anchors its gutter actions. The
+      // clamp keeps the row below the band's 1px top frame even when the
+      // row is as tall as the line.
       const y = isEmptySpan(span)
         ? top - ACTION_ROW_HEIGHT / 2
-        : top + (lineHeight - ACTION_ROW_HEIGHT) / 2;
+        : top + Math.max(1, (lineHeight - ACTION_ROW_HEIGHT) / 2);
       return y < -24 || y > height + 24 ? undefined : y;
     };
 
@@ -935,7 +942,7 @@ export class MergeView {
         this.ribbons?.scheduleDraw();
         this.rebuildButtons();
       }
-    }, 250);
+    }, 120);
   }
 
   private installZones(editor: Editor, spacers: Spacer[]): void {

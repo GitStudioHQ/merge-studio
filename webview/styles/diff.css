@@ -312,8 +312,10 @@ body.vscode-high-contrast-light {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  /* 18px tall = fits inside one code line (so the row stays within its band
+   * row and never crosses the conflict frame); width gives the bigger target. */
   width: 20px;
-  height: 20px;
+  height: 18px;
   padding: 0;
   border: none;
   border-radius: 3px;

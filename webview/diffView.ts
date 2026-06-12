@@ -16,7 +16,7 @@ import { LARGE_FILE_LINE_THRESHOLD } from "./limits";
 type Editor = monaco.editor.IStandaloneCodeEditor;
 
 /** Pixel height of the transfer action drawn in the gutter strip. */
-const ACTION_ROW_HEIGHT = 20;
+const ACTION_ROW_HEIGHT = 18;
 
 /** Debounce for re-running the diff while the right pane is being edited. */
 const REDIFF_DELAY_MS = 200;
@@ -37,7 +37,8 @@ const SHARED_OPTIONS: monaco.editor.IStandaloneEditorConstructionOptions = {
   wordWrap: "off",
   fixedOverflowWidgets: true,
   stickyScroll: { enabled: false },
-  smoothScrolling: true,
+  // Lockstep with the gutter overlay — see SHARED_OPTIONS in mergeView.ts.
+  smoothScrolling: false,
 };
 
 export interface DiffRenderOptions {
