@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Merge Studio webview harness</title>
+  <link href="/dist/webview/main.css" rel="stylesheet" />
+  <style>
+    html, body, #root { height: 100%; margin: 0; padding: 0; }
+    body {
+      color: #cccccc;
+      font-family: -apple-system, system-ui, sans-serif;
+      font-size: 13px;
+      background: #1e1e1e;
+      overflow: hidden;
+      /* The handful of VS Code theme vars the webview reads. */
+      --vscode-editor-background: #1e1e1e;
+      --vscode-foreground: #cccccc;
+      --vscode-descriptionForeground: #9d9d9d;
+      --vscode-panel-border: #3c3c3c;
+      --vscode-editor-font-family: Menlo, Monaco, monospace;
+      --vscode-editor-font-size: 12px;
+      --vscode-editorLineNumber-foreground: #858585;
+      --vscode-editorGroupHeader-tabsBackground: #252526;
+      --vscode-button-background: #0e639c;
+      --vscode-button-foreground: #ffffff;
+      --vscode-button-secondaryBackground: #3a3d41;
+      --vscode-button-secondaryForeground: #f0f0f0;
+    }
+    .jb-merge-grid, .jb-diff-grid {
+      display: grid;
+      grid-template-columns: 1fr 44px 1fr;
+      grid-template-rows: 28px 1fr;
+      height: 100%;
+      width: 100%;
+      position: relative;
+    }
+    .jb-pane-title {
+      display: flex; align-items: center; gap: 6px; padding: 0 10px;
+      font-size: 11px; color: #9d9d9d; white-space: nowrap; overflow: hidden;
+      border-bottom: 1px solid #3c3c3c; background: #1e1e1e;
+    }
+    .jb-title-result { justify-content: center; }
+    .jb-pane-label { overflow: hidden; text-overflow: ellipsis; }
+    .jb-merge-grid::before, .jb-merge-grid::after {
+      content: ""; grid-row: 1; border-bottom: 1px solid #3c3c3c; background: #1e1e1e;
+    }
+    .jb-merge-grid::before { grid-column: 2; }
+    .jb-merge-grid::after { grid-column: 4; }
+    .jb-pane-body { min-width: 0; min-height: 0; position: relative; overflow: hidden; }
+    .jb-gutter { position: relative; grid-row: 2; min-width: 0; overflow: hidden; background: #1e1e1e; }
+  </style>
+</head>
+<body class="vscode-dark">
+  <div id="root"><div id="placeholder">Loading…</div></div>
+  <script>
+    // Shim the VS Code webview API before the bundle loads.
+    globalThis.acquireVsCodeApi = () => ({
+      postMessage: () => {},
+      getState: () => undefined,
+      setState: () => {},
+    });
+    window.__JBMERGE__ = { workerUri: location.origin + "/dist/webview/editor.worker.js" };
+  </script>
+  <script src="/dist/webview/main.js"></script>
+  <script>
+    const filler = (tag, n) => Array.from({ length: n }, (_, i) => `function ${tag}${i}() {\n  return ${i};\n}\n`).join("\n");
+    const lines = (...xs) => xs.join("\n");
+    const base = lines(
+      "/**",
+      " * User service module.",
+      " * Handles fetching.",
+      " */",
+      "",
+      "const RETRY_LIMIT = 4;",
+      "const CACHE_TTL = 700;",
+      "const API_ROOT = \"/api/v1\";",
+      "",
+      "function buildKey(id) {",
+      "  return `user:${id}`;",
+      "}",
+      "",
+      "async function fetchUser(id) {",
+      "  const cached = cache.get(id);",
+      "  if (cached) {",
+      "    return cached;",
+      "  }",
+      "  const response = await fetch(`${API_ROOT}/users/${id}`);",
+      "  return response.json();",
+      "}",
+      "",
+      "function shared() {",
+      "  return 1;",
+      "}",
+      "",
+      filler("mid", 14),
+      "const MODE = \"none\";",
+      "",
+      filler("tail", 14),
+      "export { fetchUser };",
+      "",
+    );
+    const ours = base
+      .replace(" * User service module.", " * User service module — ours edition.\n * @owner platform-core")
+      .replace("const RETRY_LIMIT = 4;", "const RETRY_LIMIT = 5;")
+      .replace("const CACHE_TTL = 700;", "const CACHE_TTL = 900;")
+      .replace("  const cached = cache.get(id);", "  console.debug(\"fetchUser\", id);\n  const cached = cache.get(buildKey(id));")
+      .replace("const MODE = \"none\";", "const MODE = \"ours\";\nconst EXTRA_OURS = true;")
+      .replace("export { fetchUser };", "export { fetchUser, buildKey };");
+    const theirs = base
+      .replace(" * User service module.", " * User service module (v2 surface).\n * @since 2.0\n * @author feature-team")
+      .replace("const RETRY_LIMIT = 4;", "const RETRY_LIMIT = 10;")
+      .replace("const CACHE_TTL = 700;", "const CACHE_TTL = 600;")
+      .replace("  const cached = cache.get(id);", "  const cached = userCache.get(id);\n  for (let attempt = 1; attempt <= RETRY_LIMIT; attempt++) {\n    noop();\n  }")
+      .replace("const MODE = \"none\";", "const MODE = \"theirs\";")
+      .replace("export { fetchUser };", "export { fetchUser, fetchUser as fetchUserV2 };");
+
+    window.postMessage({
+      type: "diffInit",
+      leftLabel: "HEAD (master)",
+      rightLabel: "Working Tree",
+      leftText: base,
+      rightText: ours,
+      fileName: "userService.js",
+      rightEditable: true,
+    }, "*");
+  </script>
+</body>
+</html>

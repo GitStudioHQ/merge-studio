@@ -13,3 +13,4 @@ tsconfig.json
 .gitignore
 .editorconfig
 **/.DS_Store
+test-harness/**

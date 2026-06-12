@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.6
+
+- Fixed the ribbon stage rendering at its intrinsic 300×150px size: SVG is a replaced element, so `left/right` insets alone don't stretch it — everything beyond ~300px (gutter bands, frame lines over the result and right panes) was silently clipped. The stage now gets explicit width/height. Verified end-to-end in a real-browser harness (`test-harness/`): continuous frame lines across all five columns, band fills, scrolled states, and retina rendering, with path geometry checked numerically.
+
 ## 0.1.5
 
 - Bands and conflict frame lines now draw on a single full-width SVG stage spanning all five columns (panes + gutters), in absolute coordinates. The previous per-gutter overlays needed their strokes to escape the gutter box, which browser clipping kept eating — on the stage nothing leaves the viewport, so the frame lines finally render across the editors and their line numbers too.

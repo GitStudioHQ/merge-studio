@@ -72,8 +72,11 @@ body.vscode-high-contrast-light {
   position: absolute;
   top: 28px;
   left: 0;
-  right: 0;
-  bottom: 0;
+  /* Explicit size: SVG is a replaced element, so left/right insets alone
+   * leave it at its 300x150 intrinsic size, silently clipping everything
+   * beyond — set the real dimensions. */
+  width: 100%;
+  height: calc(100% - 28px);
   pointer-events: none;
   z-index: 1;
 }
