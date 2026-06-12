@@ -29,7 +29,7 @@ type Editor = monaco.editor.IStandaloneCodeEditor;
 type AcceptMode = "auto" | "replace" | "append";
 
 /** Pixel height of the ✕/≫ action row drawn in the gutter strips. */
-const ACTION_ROW_HEIGHT = 18;
+const ACTION_ROW_HEIGHT = 20;
 
 export interface MergeRenderOptions {
   whitespace: WhitespaceMode;
@@ -787,37 +787,53 @@ export class MergeView {
   }
 
   private rebuildButtons(): void {
-    if (!this.model || !this.result || !this.buttonLayerA || !this.buttonLayerB) {
+    if (
+      !this.model ||
+      !this.left ||
+      !this.result ||
+      !this.right ||
+      !this.buttonLayerA ||
+      !this.buttonLayerB
+    ) {
       return;
     }
     this.buttonLayerA.replaceChildren();
     this.buttonLayerB.replaceChildren();
 
-    const scrollTop = this.result.getScrollTop();
     const height = this.gutterA?.clientHeight ?? 0;
     const lineHeight = this.result.getOption(
       monaco.editor.EditorOption.lineHeight,
     );
 
-    for (const block of this.model.blocks) {
-      if (this.isResolved(block)) {
-        continue;
-      }
-      const span = this.currentResultSpan(block);
-      const top = this.result.getTopForLineNumber(span.start) - scrollTop;
+    // The icons live in the gutter's rectangular strip, which tracks the
+    // SIDE pane's rows — so they anchor to the side editor's geometry, not
+    // the result's, and can never drift out of the colored band.
+    const place = (editor: Editor, span: LineSpan): number | undefined => {
+      const top =
+        editor.getTopForLineNumber(span.start) - editor.getScrollTop();
       // Center the icon row on the first line (or on the boundary for
       // insertion points), like IntelliJ anchors its gutter actions.
       const y = isEmptySpan(span)
         ? top - ACTION_ROW_HEIGHT / 2
         : top + (lineHeight - ACTION_ROW_HEIGHT) / 2;
-      if (y < -24 || y > height + 24) {
+      return y < -24 || y > height + 24 ? undefined : y;
+    };
+
+    for (const block of this.model.blocks) {
+      if (this.isResolved(block)) {
         continue;
       }
       if (block.left && !this.isSideDone(block, "left")) {
-        this.buttonLayerA.appendChild(this.makeActions(block, "left", y));
+        const y = place(this.left, block.left.sideSpan);
+        if (y !== undefined) {
+          this.buttonLayerA.appendChild(this.makeActions(block, "left", y));
+        }
       }
       if (block.right && !this.isSideDone(block, "right")) {
-        this.buttonLayerB.appendChild(this.makeActions(block, "right", y));
+        const y = place(this.right, block.right.sideSpan);
+        if (y !== undefined) {
+          this.buttonLayerB.appendChild(this.makeActions(block, "right", y));
+        }
       }
     }
   }
@@ -1180,6 +1196,14 @@ export class MergeView {
   private installViewListeners(): void {
     if (!this.result) {
       return;
+    }
+    // Buttons anchor to the SIDE panes' geometry, so their scroll (which can
+    // diverge from the result's when sync-scroll is off) must reposition too.
+    if (this.left && this.right) {
+      this.viewSubs.push(
+        this.left.onDidScrollChange(() => this.scheduleButtons()),
+        this.right.onDidScrollChange(() => this.scheduleButtons()),
+      );
     }
     this.viewSubs.push(
       this.result.onDidScrollChange(() => this.scheduleButtons()),

@@ -289,14 +289,21 @@ body.vscode-high-contrast-light {
   pointer-events: none;
 }
 /* IntelliJ anchors the action icons against the pane they act on: the left
- * strip's ✕≫ hug the left pane, the right strip's ≪✕ hug the right pane. */
+ * strip's ✕≫ hug the left pane, the right strip's ≪✕ hug the right pane.
+ * The 2+20+2+20+2 row fills the band's 46px rectangular icon strip
+ * (MERGE_ICON_STRIP in ribbons.ts), so the icons sit inside the color. */
 .jb-gutter-a .jb-change-actions {
-  left: 3px;
+  left: 2px;
   transform: none;
 }
 .jb-gutter-b .jb-change-actions {
   left: auto;
-  right: 3px;
+  right: 2px;
+  transform: none;
+}
+/* The diff's single transfer arrow hugs the left pane the same way. */
+.jb-diff-grid .jb-change-actions {
+  left: 2px;
   transform: none;
 }
 .jb-gutter-btn {
@@ -305,8 +312,8 @@ body.vscode-high-contrast-light {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 18px;
-  height: 18px;
+  width: 20px;
+  height: 20px;
   padding: 0;
   border: none;
   border-radius: 3px;
@@ -315,14 +322,18 @@ body.vscode-high-contrast-light {
   user-select: none;
   transition: color 0.1s ease, background 0.1s ease;
 }
+.jb-gutter-btn .jb-svg svg {
+  width: 15px;
+  height: 15px;
+}
 .jb-gutter-btn:hover {
   color: var(--vscode-editorLineNumber-activeForeground, var(--vscode-foreground));
   background: var(--vscode-toolbar-hoverBackground, rgba(127, 127, 127, 0.22));
 }
-.jb-btn-accept.jb-role-inserted:hover { background: var(--jb-inner-inserted); color: #fff; }
-.jb-btn-accept.jb-role-deleted:hover { background: var(--jb-inner-deleted); color: #fff; }
-.jb-btn-accept.jb-role-modified:hover { background: var(--jb-inner-modified); color: #fff; }
-.jb-btn-accept.jb-role-conflict:hover { background: var(--jb-inner-conflict); color: #fff; }
+.jb-btn-accept.jb-role-inserted:hover { background: var(--jb-inner-inserted); color: var(--vscode-foreground); }
+.jb-btn-accept.jb-role-deleted:hover { background: var(--jb-inner-deleted); color: var(--vscode-foreground); }
+.jb-btn-accept.jb-role-modified:hover { background: var(--jb-inner-modified); color: var(--vscode-foreground); }
+.jb-btn-accept.jb-role-conflict:hover { background: var(--jb-inner-conflict); color: var(--vscode-foreground); }
 
 /* ---- Responsive toolbar: collapse gracefully in narrow editor groups ---- */
 @media (max-width: 1000px) {

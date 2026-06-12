@@ -55,7 +55,9 @@ export function getWebviewHtml(
     }
     .jb-merge-grid {
       display: grid;
-      grid-template-columns: 1fr 44px 1fr 44px 1fr;
+      /* 64px gutters: a 46px rectangular icon strip hugging each side pane
+         (see MERGE_ICON_STRIP in webview/ribbons.ts) + an 18px slant zone. */
+      grid-template-columns: 1fr 64px 1fr 64px 1fr;
       grid-template-rows: 28px 1fr;
       height: 100%;
       width: 100%;

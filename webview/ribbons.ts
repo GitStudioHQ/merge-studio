@@ -11,6 +11,26 @@ import type { DiffEditors, MergeEditors } from "./decorations";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 
+/**
+ * Width of the straight, rectangular segment of a merge-gutter band that hugs
+ * the side pane. The accept/ignore icons live inside this segment, and the
+ * slanted connection to the result pane only starts after it — IntelliJ's
+ * layout, and what keeps the icons inside the color at every scroll offset.
+ * Must fit the action row built in mergeView.makeActions (2 buttons + gaps).
+ */
+export const MERGE_ICON_STRIP = 46;
+
+/** Same idea for the 2-way diff's single transfer button (left-anchored). */
+export const DIFF_ICON_STRIP = 24;
+
+/** Which edge of the gutter carries the rectangular icon segment. */
+type StripSide = "a" | "b";
+
+interface IconStrip {
+  side: StripSide;
+  width: number;
+}
+
 export interface RibbonOptions {
   /** Current result-pane span for a block (defaults to its base span). */
   resultSpanOf?: (block: ChangeBlock) => LineSpan;
@@ -87,12 +107,18 @@ export class RibbonOverlay {
       if (block.left && !this.options.isSideDone?.(block, "left")) {
         const side = spanY(this.editors.left, block.left.sideSpan, lineHeight);
         const result = spanY(this.editors.result, resultSpan, lineHeight);
-        appendRibbon(this.svgA, widthA, heightA, side, result, role);
+        appendRibbon(this.svgA, widthA, heightA, side, result, role, {
+          side: "a",
+          width: MERGE_ICON_STRIP,
+        });
       }
       if (block.right && !this.options.isSideDone?.(block, "right")) {
         const result = spanY(this.editors.result, resultSpan, lineHeight);
         const side = spanY(this.editors.right, block.right.sideSpan, lineHeight);
-        appendRibbon(this.svgB, widthB, heightB, result, side, role);
+        appendRibbon(this.svgB, widthB, heightB, result, side, role, {
+          side: "b",
+          width: MERGE_ICON_STRIP,
+        });
       }
     }
   }
@@ -160,7 +186,10 @@ export class DiffRibbonOverlay {
     for (const block of model.blocks) {
       const left = spanY(this.editors.left, block.leftSpan, lineHeight);
       const right = spanY(this.editors.right, block.rightSpan, lineHeight);
-      appendRibbon(this.svg, width, height, left, right, block.role);
+      appendRibbon(this.svg, width, height, left, right, block.role, {
+        side: "a",
+        width: DIFF_ICON_STRIP,
+      });
     }
   }
 
@@ -195,10 +224,12 @@ function spanY(
 
 /**
  * Draws one flat connector band into `svg`, the way IntelliJ's merge tool
- * does: a straight trapezoid flush with the line highlights on either side so
- * the change reads as one continuous stripe across the panes. `a` is the x=0
- * edge (left pane of the gutter), `b` is the x=width edge. Conflict bands
- * additionally get IntelliJ's dashed top/bottom boundary lines.
+ * does. `a` is the x=0 edge (left pane of the gutter), `b` is the x=width
+ * edge. When an icon strip is given, the band stays RECTANGULAR (tracking
+ * that side's rows exactly) across the strip — the gutter action icons live
+ * there, glued to the color — and only slants toward the other pane in the
+ * remaining width. Conflict bands additionally get IntelliJ's solid
+ * top/bottom boundary lines, following the same polyline.
  */
 function appendRibbon(
   svg: SVGSVGElement,
@@ -207,6 +238,7 @@ function appendRibbon(
   a: [number, number],
   b: [number, number],
   role: string,
+  strip?: IconStrip,
 ): void {
   const [aTop, aBottom] = a;
   const [bTop, bBottom] = b;
@@ -214,11 +246,32 @@ function appendRibbon(
     return; // fully outside the viewport
   }
 
+  // x-coordinates of the strip boundary; degrade to a plain trapezoid when
+  // the gutter is too narrow for a meaningful slant region.
+  const stripWidth = strip ? Math.min(strip.width, width - 8) : 0;
+  const topPoints: Array<[number, number]> = [];
+  const bottomPoints: Array<[number, number]> = [];
+  if (strip && stripWidth > 0 && strip.side === "a") {
+    topPoints.push([0, aTop], [stripWidth, aTop], [width, bTop]);
+    bottomPoints.push([0, aBottom], [stripWidth, aBottom], [width, bBottom]);
+  } else if (strip && stripWidth > 0 && strip.side === "b") {
+    topPoints.push([0, aTop], [width - stripWidth, bTop], [width, bTop]);
+    bottomPoints.push(
+      [0, aBottom],
+      [width - stripWidth, bBottom],
+      [width, bBottom],
+    );
+  } else {
+    topPoints.push([0, aTop], [width, bTop]);
+    bottomPoints.push([0, aBottom], [width, bBottom]);
+  }
+
   const d = [
-    `M 0 ${fmt(aTop)}`,
-    `L ${fmt(width)} ${fmt(bTop)}`,
-    `L ${fmt(width)} ${fmt(bBottom)}`,
-    `L 0 ${fmt(aBottom)}`,
+    ...topPoints.map(([x, y], i) => `${i === 0 ? "M" : "L"} ${fmt(x)} ${fmt(y)}`),
+    ...bottomPoints
+      .slice()
+      .reverse()
+      .map(([x, y]) => `L ${fmt(x)} ${fmt(y)}`),
     "Z",
   ].join(" ");
 
@@ -232,15 +285,16 @@ function appendRibbon(
     // CSS borders. The decoration divs are content-box, so border-top paints
     // at [y, y+1) and border-bottom one pixel BELOW the line box at
     // [y, y+1) of the boundary — both edges land on the boundary's own row.
-    appendEdge(
-      svg,
-      `M 0 ${fmt(aTop + 0.5)} L ${fmt(width)} ${fmt(bTop + 0.5)}`,
-    );
-    appendEdge(
-      svg,
-      `M 0 ${fmt(aBottom + 0.5)} L ${fmt(width)} ${fmt(bBottom + 0.5)}`,
-    );
+    appendEdge(svg, polyline(topPoints, 0.5));
+    appendEdge(svg, polyline(bottomPoints, 0.5));
   }
+}
+
+/** SVG path string through the points, with a uniform y offset. */
+function polyline(points: Array<[number, number]>, dy: number): string {
+  return points
+    .map(([x, y], i) => `${i === 0 ? "M" : "L"} ${fmt(x)} ${fmt(y + dy)}`)
+    .join(" ");
 }
 
 /** One solid conflict-boundary line across the gutter strip. */

@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.1
+
+- Gutter accept/ignore icons now live inside a straight, rectangular segment of the change band that hugs the side pane (the slant to the result pane starts after it, as in IntelliJ) and are anchored to that pane's rows — they no longer drift out of the color while scrolling.
+- Bigger gutter action buttons (20px, 15px icons) and wider merge gutters to fit the icon strip.
+- The 2-way diff's transfer arrow gets the same strip treatment.
+- Accept-button hover color fixed for light themes.
+
 ## 0.1.0 — first public release
 
 Renamed to **Merge Studio** (formerly "JetBrains-style Merge & Diff").
