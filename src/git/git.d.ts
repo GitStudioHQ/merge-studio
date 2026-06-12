@@ -75,4 +75,10 @@ export interface Repository {
    * passing Uris fails at runtime inside the git extension.
    */
   add(paths: string[]): Promise<void>;
+
+  /**
+   * Forces a status re-scan. Present on the real vscode.git Repository (API
+   * v1); optional here so a missing implementation degrades gracefully.
+   */
+  status?(): Promise<void>;
 }

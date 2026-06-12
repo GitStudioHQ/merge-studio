@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.0
+
+- Resolved files now STAY in the Conflicts dialog — green-tinted, check-marked, and labeled with how they were settled ("kept yours", "kept theirs", or "merged" for merge-editor/external resolutions).
+- Hold-to-undo: every resolved row has an Undo button that must be held for 3 seconds (a fill sweeps the button) before it fires — `git checkout -m` then restores the original conflict, including resolutions made in the merge editor. Covered by new round-trip tests.
+- Accept Yours/Theirs is much faster: one fewer git subprocess per accept, the in-progress-operation probe is cached between refreshes, rows update optimistically instead of waiting for VS Code's git watcher, and the extension pokes git for an immediate re-scan.
+- When everything is resolved, the dialog keeps the green list around for review/undo and closes itself after a few seconds.
+
 ## 0.1.9
 
 - The Accept Left / Accept Right button that settled the merge now shows a green confirmation (check mark + green outline), so it is obvious which side was chosen. Undo and reset revoke it.

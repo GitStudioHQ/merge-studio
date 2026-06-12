@@ -91,39 +91,46 @@ export async function describeIncoming(
   }
 }
 
-/** Index stage numbers present for an unmerged path (2 = ours, 3 = theirs). */
-async function unmergedStages(
-  root: string,
-  fsPath: string,
-): Promise<Set<number>> {
-  const out = await git(root, ["ls-files", "-u", "--", fsPath]);
-  const stages = new Set<number>();
-  for (const line of out.split("\n")) {
-    // "<mode> <sha> <stage>\t<path>"
-    const stage = Number(line.split("\t")[0]?.split(" ")[2]);
-    if (!Number.isNaN(stage)) {
-      stages.add(stage);
-    }
-  }
-  return stages;
-}
-
 /**
  * Resolves a conflicted file wholesale to one side, like the JetBrains
  * conflicts dialog's "Accept Yours / Accept Theirs". When the chosen side
- * deleted the file, accepting that side deletes the file.
+ * deleted the file, accepting that side deletes the file. Optimistically
+ * tries the checkout (the overwhelmingly common case) instead of probing the
+ * index stages first — one fewer subprocess on the hot path.
  */
 export async function acceptSide(
   root: string,
   fsPath: string,
   side: "ours" | "theirs",
 ): Promise<void> {
-  const stages = await unmergedStages(root, fsPath);
-  const wanted = side === "ours" ? 2 : 3;
-  if (stages.has(wanted)) {
-    await git(root, ["checkout", side === "ours" ? "--ours" : "--theirs", "--", fsPath]);
+  let checkedOut = true;
+  try {
+    await git(root, [
+      "checkout",
+      side === "ours" ? "--ours" : "--theirs",
+      "--",
+      fsPath,
+    ]);
+  } catch {
+    // The chosen side has no stage — it deleted the file.
+    checkedOut = false;
+  }
+  if (checkedOut) {
     await git(root, ["add", "--", fsPath]);
   } else {
     await git(root, ["rm", "-f", "--", fsPath]);
   }
+}
+
+/**
+ * Re-creates the conflicted state of a file that was already resolved and
+ * staged during the in-progress merge — the conflicts dialog's "undo".
+ * `git checkout -m` rebuilds the conflict from the index's resolve-undo
+ * records, which git keeps exactly for this purpose.
+ */
+export async function restoreConflict(
+  root: string,
+  fsPath: string,
+): Promise<void> {
+  await git(root, ["checkout", "-m", "--", fsPath]);
 }

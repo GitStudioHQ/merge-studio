@@ -8,6 +8,7 @@ import {
   abortOperation,
   acceptSide,
   detectOperation,
+  restoreConflict,
 } from "../src/git/mergeOps";
 
 function git(root: string, ...args: string[]): string {
@@ -106,6 +107,34 @@ test("acceptSide accepts a deletion when the chosen side deleted the file", asyn
     await acceptSide(root, path.join(root, "c.txt"), "theirs");
     assert.equal(fs.existsSync(path.join(root, "c.txt")), false);
     assert.equal(git(root, "ls-files", "-u").trim(), "");
+  } finally {
+    cleanup(root);
+  }
+});
+
+test("restoreConflict re-creates a conflict that was resolved and staged", async () => {
+  const root = makeConflictedRepo();
+  try {
+    await acceptSide(root, path.join(root, "a.txt"), "ours");
+    assert.equal(git(root, "ls-files", "-u", "--", "a.txt").trim(), "");
+    await restoreConflict(root, path.join(root, "a.txt"));
+    // stages are back
+    assert.notEqual(git(root, "ls-files", "-u", "--", "a.txt").trim(), "");
+    assert.match(read(root, "a.txt"), /^<{7}/m); // markers restored
+  } finally {
+    cleanup(root);
+  }
+});
+
+test("restoreConflict round-trips with a different second choice", async () => {
+  const root = makeConflictedRepo();
+  try {
+    await acceptSide(root, path.join(root, "a.txt"), "ours");
+    assert.equal(read(root, "a.txt"), "main\n");
+    await restoreConflict(root, path.join(root, "a.txt"));
+    await acceptSide(root, path.join(root, "a.txt"), "theirs");
+    assert.equal(read(root, "a.txt"), "feature\n");
+    assert.equal(git(root, "ls-files", "-u", "--", "a.txt").trim(), "");
   } finally {
     cleanup(root);
   }
