@@ -31,6 +31,9 @@ interface IconStrip {
   width: number;
 }
 
+/** Corner radius for the frame-line and band bends. */
+const BEND_RADIUS = 7;
+
 export interface RibbonOptions {
   /** Current result-pane span for a block (defaults to its base span). */
   resultSpanOf?: (block: ChangeBlock) => LineSpan;
@@ -40,36 +43,37 @@ export interface RibbonOptions {
   isSideDone?: (block: ChangeBlock, side: Side) => boolean;
 }
 
+/** A gutter's horizontal placement on the stage. */
+interface GutterRange {
+  left: number;
+  width: number;
+}
+
 /**
- * Draws the JetBrains-style connecting bands in the two gutter columns:
- * gutter A links each left-side change to its result region, gutter B links
- * the result region to each right-side change. Flat trapezoids — flush with
- * the line highlights so each change reads as one continuous stripe — whose
- * corners track the editors' line positions on every scroll/layout change.
+ * Draws the JetBrains-style connecting bands and the conflict frame lines on
+ * ONE full-width SVG stage that spans all five columns (a late sibling of the
+ * panes, covering the editor-row area of the grid). Everything — gutter
+ * bands, icon strips, and the frame lines running across the panes — lives
+ * inside this single viewport in absolute stage coordinates, so nothing
+ * depends on overflow, clip-path, or per-gutter stacking behavior, and each
+ * frame edge is one continuous path by construction.
  */
 export class RibbonOverlay {
-  private readonly svgA: SVGSVGElement;
-  private readonly svgB: SVGSVGElement;
-  private readonly layerA: SVGGElement;
-  private readonly layerB: SVGGElement;
+  private readonly svg: SVGSVGElement;
   private readonly subs: monaco.IDisposable[] = [];
   private rafHandle = 0;
 
   constructor(
-    gutterA: HTMLElement,
-    gutterB: HTMLElement,
+    private readonly gutterA: HTMLElement,
+    private readonly gutterB: HTMLElement,
     private readonly editors: MergeEditors,
     private readonly getModel: () => MergeModel | undefined,
     private readonly options: RibbonOptions = {},
   ) {
-    const a = createSvg();
-    const b = createSvg();
-    this.svgA = a.svg;
-    this.layerA = a.layer;
-    this.svgB = b.svg;
-    this.layerB = b.layer;
-    gutterA.appendChild(this.svgA);
-    gutterB.appendChild(this.svgB);
+    this.svg = createStage();
+    // Last child of the grid: paints above the panes' z-auto content while
+    // the gutter button layers (z-index 2) stay above the lines.
+    (gutterA.parentElement ?? gutterA).appendChild(this.svg);
 
     for (const editor of [editors.left, editors.result, editors.right]) {
       this.subs.push(editor.onDidScrollChange(() => this.scheduleDraw()));
@@ -89,8 +93,7 @@ export class RibbonOverlay {
   }
 
   private draw(): void {
-    clearChildren(this.layerA);
-    clearChildren(this.layerB);
+    clearChildren(this.svg);
     const model = this.getModel();
     if (!model) {
       return;
@@ -98,10 +101,19 @@ export class RibbonOverlay {
     const lineHeight = this.editors.left.getOption(
       monaco.editor.EditorOption.lineHeight,
     );
-    const widthA = this.svgA.clientWidth;
-    const heightA = this.svgA.clientHeight;
-    const widthB = this.svgB.clientWidth;
-    const heightB = this.svgB.clientHeight;
+    const stageRect = this.svg.getBoundingClientRect();
+    const rectA = this.gutterA.getBoundingClientRect();
+    const rectB = this.gutterB.getBoundingClientRect();
+    const gutterA: GutterRange = {
+      left: rectA.left - stageRect.left,
+      width: rectA.width,
+    };
+    const gutterB: GutterRange = {
+      left: rectB.left - stageRect.left,
+      width: rectB.width,
+    };
+    const stageWidth = stageRect.width;
+    const height = stageRect.height;
 
     for (const block of model.blocks) {
       if (this.options.isResolved?.(block)) {
@@ -109,47 +121,40 @@ export class RibbonOverlay {
       }
       const role = blockRole(block);
       const resultSpan = this.options.resultSpanOf?.(block) ?? block.baseSpan;
-
       const leftPending =
         !!block.left && !this.options.isSideDone?.(block, "left");
       const rightPending =
         !!block.right && !this.options.isSideDone?.(block, "right");
-      // Pane widths for the conflict frame lines, which extend out of the
-      // gutter across the neighboring panes (single-renderer continuity).
-      // Gutter A covers the left pane (and the result only when gutter B
-      // won't draw, to avoid double-compositing the translucent stroke);
-      // gutter B covers the result and right panes.
-      const leftWidth = this.editors.left.getLayoutInfo().width;
-      const resultWidth = this.editors.result.getLayoutInfo().width;
-      const rightWidth = this.editors.right.getLayoutInfo().width;
 
       if (leftPending && block.left) {
         const side = spanY(this.editors.left, block.left.sideSpan, lineHeight);
         const result = spanY(this.editors.result, resultSpan, lineHeight);
-        appendRibbon(
-          this.layerA,
-          widthA,
-          heightA,
-          side,
-          result,
-          role,
-          { side: "a", width: MERGE_ICON_STRIP },
-          { before: leftWidth, after: rightPending ? 0 : resultWidth },
-        );
+        appendRibbon(this.svg, gutterA, height, side, result, role, {
+          strip: { side: "a", width: MERGE_ICON_STRIP },
+          // The frame line runs from the stage's left edge (left pane) to
+          // the result pane's right edge — or only to gutter B's start when
+          // gutter B draws the rest, so the translucent stroke never
+          // composites twice.
+          frame:
+            role === "conflict"
+              ? { fromX: 0, toX: rightPending ? gutterA.left + gutterA.width : gutterB.left }
+              : undefined,
+        });
       }
       if (rightPending && block.right) {
         const result = spanY(this.editors.result, resultSpan, lineHeight);
-        const side = spanY(this.editors.right, block.right.sideSpan, lineHeight);
-        appendRibbon(
-          this.layerB,
-          widthB,
-          heightB,
-          result,
-          side,
-          role,
-          { side: "b", width: MERGE_ICON_STRIP },
-          { before: resultWidth, after: rightWidth },
+        const side = spanY(
+          this.editors.right,
+          block.right.sideSpan,
+          lineHeight,
         );
+        appendRibbon(this.svg, gutterB, height, result, side, role, {
+          strip: { side: "b", width: MERGE_ICON_STRIP },
+          frame:
+            role === "conflict"
+              ? { fromX: gutterA.left + gutterA.width, toX: stageWidth }
+              : undefined,
+        });
       }
     }
   }
@@ -163,8 +168,7 @@ export class RibbonOverlay {
       sub.dispose();
     }
     this.subs.length = 0;
-    this.svgA.remove();
-    this.svgB.remove();
+    this.svg.remove();
   }
 }
 
@@ -174,19 +178,16 @@ export class RibbonOverlay {
  */
 export class DiffRibbonOverlay {
   private readonly svg: SVGSVGElement;
-  private readonly layer: SVGGElement;
   private readonly subs: monaco.IDisposable[] = [];
   private rafHandle = 0;
 
   constructor(
-    gutter: HTMLElement,
+    private readonly gutter: HTMLElement,
     private readonly editors: DiffEditors,
     private readonly getModel: () => DiffModel | undefined,
   ) {
-    const surface = createSvg();
-    this.svg = surface.svg;
-    this.layer = surface.layer;
-    gutter.appendChild(this.svg);
+    this.svg = createStage();
+    (gutter.parentElement ?? gutter).appendChild(this.svg);
 
     for (const editor of [editors.left, editors.right]) {
       this.subs.push(editor.onDidScrollChange(() => this.scheduleDraw()));
@@ -206,7 +207,7 @@ export class DiffRibbonOverlay {
   }
 
   private draw(): void {
-    clearChildren(this.layer);
+    clearChildren(this.svg);
     const model = this.getModel();
     if (!model) {
       return;
@@ -214,15 +215,19 @@ export class DiffRibbonOverlay {
     const lineHeight = this.editors.left.getOption(
       monaco.editor.EditorOption.lineHeight,
     );
-    const width = this.svg.clientWidth;
-    const height = this.svg.clientHeight;
+    const stageRect = this.svg.getBoundingClientRect();
+    const rect = this.gutter.getBoundingClientRect();
+    const gutter: GutterRange = {
+      left: rect.left - stageRect.left,
+      width: rect.width,
+    };
+    const height = stageRect.height;
 
     for (const block of model.blocks) {
       const left = spanY(this.editors.left, block.leftSpan, lineHeight);
       const right = spanY(this.editors.right, block.rightSpan, lineHeight);
-      appendRibbon(this.layer, width, height, left, right, block.role, {
-        side: "a",
-        width: DIFF_ICON_STRIP,
+      appendRibbon(this.svg, gutter, height, left, right, block.role, {
+        strip: { side: "a", width: DIFF_ICON_STRIP },
       });
     }
   }
@@ -257,27 +262,24 @@ function spanY(
 }
 
 /**
- * Draws one flat connector band into `svg`, the way IntelliJ's merge tool
- * does. `a` is the x=0 edge (left pane of the gutter), `b` is the x=width
- * edge. When an icon strip is given, the band stays RECTANGULAR (tracking
- * that side's rows exactly) across the strip — the gutter action icons live
- * there, glued to the color — and only slants toward the other pane in the
- * remaining width. Conflict bands additionally get IntelliJ's solid
- * top/bottom boundary lines, following the same polyline.
+ * Draws one flat connector band (and, for conflicts, its frame lines) onto
+ * the stage. `a` is the gutter's left edge (the pane before it), `b` its
+ * right edge. With an icon strip, the band stays RECTANGULAR across the
+ * strip — the gutter action icons live there, glued to the color — and only
+ * slants toward the other pane in the remaining width. Frame lines run from
+ * `frame.fromX` to `frame.toX` across the panes as one continuous path.
  */
-/** Corner radius for the frame-line and band bends ("smooth, not technical"). */
-const BEND_RADIUS = 7;
-
 function appendRibbon(
   target: SVGElement,
-  width: number,
+  gutter: GutterRange,
   height: number,
   a: [number, number],
   b: [number, number],
   role: string,
-  strip?: IconStrip,
-  /** Conflict frame lines extend this far beyond the gutter, over the panes. */
-  extend?: { before: number; after: number },
+  options: {
+    strip?: IconStrip;
+    frame?: { fromX: number; toX: number };
+  } = {},
 ): void {
   const [aTop, aBottom] = a;
   const [bTop, bBottom] = b;
@@ -285,55 +287,55 @@ function appendRibbon(
     return; // fully outside the viewport
   }
 
-  // x-coordinates of the strip boundary; degrade to a plain trapezoid when
-  // the gutter is too narrow for a meaningful slant region.
-  const stripWidth = strip ? Math.min(strip.width, width - 8) : 0;
+  const x0 = gutter.left;
+  const x1 = gutter.left + gutter.width;
+  // x of the strip boundary; degrade to a plain trapezoid when the gutter is
+  // too narrow for a meaningful slant region.
+  const stripWidth = options.strip
+    ? Math.min(options.strip.width, gutter.width - 8)
+    : 0;
   const topPoints: Array<[number, number]> = [];
   const bottomPoints: Array<[number, number]> = [];
-  if (strip && stripWidth > 0 && strip.side === "a") {
-    topPoints.push([0, aTop], [stripWidth, aTop], [width, bTop]);
-    bottomPoints.push([0, aBottom], [stripWidth, aBottom], [width, bBottom]);
-  } else if (strip && stripWidth > 0 && strip.side === "b") {
-    topPoints.push([0, aTop], [width - stripWidth, bTop], [width, bTop]);
-    bottomPoints.push(
-      [0, aBottom],
-      [width - stripWidth, bBottom],
-      [width, bBottom],
-    );
+  if (options.strip && stripWidth > 0 && options.strip.side === "a") {
+    topPoints.push([x0, aTop], [x0 + stripWidth, aTop], [x1, bTop]);
+    bottomPoints.push([x0, aBottom], [x0 + stripWidth, aBottom], [x1, bBottom]);
+  } else if (options.strip && stripWidth > 0 && options.strip.side === "b") {
+    topPoints.push([x0, aTop], [x1 - stripWidth, bTop], [x1, bTop]);
+    bottomPoints.push([x0, aBottom], [x1 - stripWidth, bBottom], [x1, bBottom]);
   } else {
-    topPoints.push([0, aTop], [width, bTop]);
-    bottomPoints.push([0, aBottom], [width, bBottom]);
+    topPoints.push([x0, aTop], [x1, bTop]);
+    bottomPoints.push([x0, aBottom], [x1, bBottom]);
   }
 
   // Band fill: a closed ring of the top run + reversed bottom run, with the
-  // interior bends rounded. The corners at x=0 / x=width stay sharp — they
-  // must sit flush against the pane line-highlights.
+  // interior bends rounded. The corners at the gutter edges stay sharp —
+  // they must sit flush against the pane line-highlights.
   const ring = [...topPoints, ...bottomPoints.slice().reverse()];
   const d =
-    roundedPath(ring, 0, (x) => x > 0.5 && x < width - 0.5) + " Z";
+    roundedPath(ring, 0, (x) => x > x0 + 0.5 && x < x1 - 0.5) + " Z";
 
   const path = document.createElementNS(SVG_NS, "path");
   path.setAttribute("d", d);
   path.setAttribute("class", `jb-ribbon jb-ribbon-${role}`);
   target.appendChild(path);
 
-  if (role === "conflict") {
-    // The frame is ONE path per edge, stretched across the neighboring panes
-    // (the overlay clips vertically but not horizontally) — a single SVG
-    // path cannot mismatch itself the way pane CSS borders and separate
-    // gutter strokes used to. +0.5 keeps the 1px stroke crisp on its row.
-    const withExtensions = (points: Array<[number, number]>) => {
+  if (options.frame) {
+    // Each frame edge is ONE path from fromX to toX — across pane, gutter,
+    // and pane — so it cannot mismatch itself the way pane CSS borders and
+    // separate gutter strokes used to. +0.5 keeps the 1px stroke crisp.
+    const { fromX, toX } = options.frame;
+    const withFrame = (points: Array<[number, number]>) => {
       const extended = points.slice();
-      if (extend?.before) {
-        extended.unshift([-extend.before, points[0][1]]);
+      if (fromX < points[0][0]) {
+        extended.unshift([fromX, points[0][1]]);
       }
-      if (extend?.after) {
-        extended.push([width + extend.after, points[points.length - 1][1]]);
+      if (toX > points[points.length - 1][0]) {
+        extended.push([toX, points[points.length - 1][1]]);
       }
       return extended;
     };
-    appendEdge(target, roundedPath(withExtensions(topPoints), 0.5));
-    appendEdge(target, roundedPath(withExtensions(bottomPoints), 0.5));
+    appendEdge(target, roundedPath(withFrame(topPoints), 0.5));
+    appendEdge(target, roundedPath(withFrame(bottomPoints), 0.5));
   }
 }
 
@@ -375,7 +377,7 @@ function roundedPath(
   return d;
 }
 
-/** One solid conflict-boundary line (gutter + extensions over the panes). */
+/** One solid conflict-boundary line (pane + gutter + pane, one path). */
 function appendEdge(target: SVGElement, d: string): void {
   const edge = document.createElementNS(SVG_NS, "path");
   edge.setAttribute("d", d);
@@ -383,37 +385,12 @@ function appendEdge(target: SVGElement, d: string): void {
   target.appendChild(edge);
 }
 
-interface RibbonSurface {
-  svg: SVGSVGElement;
-  /** All drawing goes here: clipped to the editor rows, free horizontally. */
-  layer: SVGGElement;
-}
-
-let clipIdCounter = 0;
-
-function createSvg(): RibbonSurface {
+/** The full-width drawing stage covering the grid's editor-row area. */
+function createStage(): SVGSVGElement {
   const svg = document.createElementNS(SVG_NS, "svg") as SVGSVGElement;
-  svg.setAttribute("class", "jb-ribbon-overlay");
+  svg.setAttribute("class", "jb-ribbon-stage");
   svg.setAttribute("preserveAspectRatio", "none");
-  // Vertical-only clip: frame lines extend horizontally across the panes but
-  // must never paint over the headers above. CSS clip-path inset() clamps
-  // negative (expanding) values, so the clip lives inside the SVG, where a
-  // rect can be arbitrarily wide. height="100%" tracks the viewport live.
-  const clipId = `jb-ribbon-clip-${++clipIdCounter}`;
-  const defs = document.createElementNS(SVG_NS, "defs");
-  const clip = document.createElementNS(SVG_NS, "clipPath");
-  clip.setAttribute("id", clipId);
-  const rect = document.createElementNS(SVG_NS, "rect");
-  rect.setAttribute("x", "-100000");
-  rect.setAttribute("y", "0");
-  rect.setAttribute("width", "200000");
-  rect.setAttribute("height", "100%");
-  clip.appendChild(rect);
-  defs.appendChild(clip);
-  const layer = document.createElementNS(SVG_NS, "g") as SVGGElement;
-  layer.setAttribute("clip-path", `url(#${clipId})`);
-  svg.append(defs, layer);
-  return { svg, layer };
+  return svg;
 }
 
 function clearChildren(node: Element): void {

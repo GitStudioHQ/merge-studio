@@ -61,6 +61,8 @@ export function getWebviewHtml(
       grid-template-rows: 28px 1fr;
       height: 100%;
       width: 100%;
+      /* Anchors the full-width ribbon stage (.jb-ribbon-stage). */
+      position: relative;
     }
     .jb-diff-grid {
       display: grid;
@@ -68,6 +70,7 @@ export function getWebviewHtml(
       grid-template-rows: 28px 1fr;
       height: 100%;
       width: 100%;
+      position: relative;
     }
     /* Pane headers sit on the editor background, like IntelliJ's quiet
        "Your version / Result / Changes from server" captions. */

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.5
+
+- Bands and conflict frame lines now draw on a single full-width SVG stage spanning all five columns (panes + gutters), in absolute coordinates. The previous per-gutter overlays needed their strokes to escape the gutter box, which browser clipping kept eating — on the stage nothing leaves the viewport, so the frame lines finally render across the editors and their line numbers too.
+
 ## 0.1.4
 
 - Restored the frame lines across the editor panes: CSS `clip-path: inset()` clamps negative (expanding) values, so the previous release accidentally clipped the extended lines at the gutter edge. The vertical-only clip now lives inside the SVG, where the clip rect can be arbitrarily wide.

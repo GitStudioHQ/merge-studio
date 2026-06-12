@@ -63,17 +63,19 @@ body.vscode-high-contrast-light {
 
 /* Flat connector bands drawn in the gutter strips (below the action icons).
  * No outline: the band must read as a continuation of the line highlight. */
-.jb-ribbon-overlay {
+/* One full-width drawing stage per merge/diff grid: bands, icon strips and
+ * the conflict frame lines are all drawn here in absolute stage coordinates.
+ * It spans the editor-row area only (top = the 28px pane-header row), so its
+ * own viewport does the vertical clipping; z-index 1 paints above the panes'
+ * content while the gutter button layers (z-index 2) stay above the lines. */
+.jb-ribbon-stage {
   position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  overflow: visible;
+  top: 28px;
+  left: 0;
+  right: 0;
+  bottom: 0;
   pointer-events: none;
   z-index: 1;
-  /* Vertical clipping (don't draw over headers) happens via an SVG-internal
-   * clipPath — CSS inset() clamps negative values, which would also clip the
-   * frame lines' horizontal extension across the panes. */
 }
 .jb-ribbon { stroke: none; }
 .jb-ribbon-inserted { fill: var(--jb-line-inserted); }
