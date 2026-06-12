@@ -50,6 +50,8 @@ export interface RibbonOptions {
 export class RibbonOverlay {
   private readonly svgA: SVGSVGElement;
   private readonly svgB: SVGSVGElement;
+  private readonly layerA: SVGGElement;
+  private readonly layerB: SVGGElement;
   private readonly subs: monaco.IDisposable[] = [];
   private rafHandle = 0;
 
@@ -60,8 +62,12 @@ export class RibbonOverlay {
     private readonly getModel: () => MergeModel | undefined,
     private readonly options: RibbonOptions = {},
   ) {
-    this.svgA = createSvg();
-    this.svgB = createSvg();
+    const a = createSvg();
+    const b = createSvg();
+    this.svgA = a.svg;
+    this.layerA = a.layer;
+    this.svgB = b.svg;
+    this.layerB = b.layer;
     gutterA.appendChild(this.svgA);
     gutterB.appendChild(this.svgB);
 
@@ -83,8 +89,8 @@ export class RibbonOverlay {
   }
 
   private draw(): void {
-    clearChildren(this.svgA);
-    clearChildren(this.svgB);
+    clearChildren(this.layerA);
+    clearChildren(this.layerB);
     const model = this.getModel();
     if (!model) {
       return;
@@ -121,7 +127,7 @@ export class RibbonOverlay {
         const side = spanY(this.editors.left, block.left.sideSpan, lineHeight);
         const result = spanY(this.editors.result, resultSpan, lineHeight);
         appendRibbon(
-          this.svgA,
+          this.layerA,
           widthA,
           heightA,
           side,
@@ -135,7 +141,7 @@ export class RibbonOverlay {
         const result = spanY(this.editors.result, resultSpan, lineHeight);
         const side = spanY(this.editors.right, block.right.sideSpan, lineHeight);
         appendRibbon(
-          this.svgB,
+          this.layerB,
           widthB,
           heightB,
           result,
@@ -168,6 +174,7 @@ export class RibbonOverlay {
  */
 export class DiffRibbonOverlay {
   private readonly svg: SVGSVGElement;
+  private readonly layer: SVGGElement;
   private readonly subs: monaco.IDisposable[] = [];
   private rafHandle = 0;
 
@@ -176,7 +183,9 @@ export class DiffRibbonOverlay {
     private readonly editors: DiffEditors,
     private readonly getModel: () => DiffModel | undefined,
   ) {
-    this.svg = createSvg();
+    const surface = createSvg();
+    this.svg = surface.svg;
+    this.layer = surface.layer;
     gutter.appendChild(this.svg);
 
     for (const editor of [editors.left, editors.right]) {
@@ -197,7 +206,7 @@ export class DiffRibbonOverlay {
   }
 
   private draw(): void {
-    clearChildren(this.svg);
+    clearChildren(this.layer);
     const model = this.getModel();
     if (!model) {
       return;
@@ -211,7 +220,7 @@ export class DiffRibbonOverlay {
     for (const block of model.blocks) {
       const left = spanY(this.editors.left, block.leftSpan, lineHeight);
       const right = spanY(this.editors.right, block.rightSpan, lineHeight);
-      appendRibbon(this.svg, width, height, left, right, block.role, {
+      appendRibbon(this.layer, width, height, left, right, block.role, {
         side: "a",
         width: DIFF_ICON_STRIP,
       });
@@ -256,8 +265,11 @@ function spanY(
  * remaining width. Conflict bands additionally get IntelliJ's solid
  * top/bottom boundary lines, following the same polyline.
  */
+/** Corner radius for the frame-line and band bends ("smooth, not technical"). */
+const BEND_RADIUS = 7;
+
 function appendRibbon(
-  svg: SVGSVGElement,
+  target: SVGElement,
   width: number,
   height: number,
   a: [number, number],
@@ -293,25 +305,23 @@ function appendRibbon(
     bottomPoints.push([0, aBottom], [width, bBottom]);
   }
 
-  const d = [
-    ...topPoints.map(([x, y], i) => `${i === 0 ? "M" : "L"} ${fmt(x)} ${fmt(y)}`),
-    ...bottomPoints
-      .slice()
-      .reverse()
-      .map(([x, y]) => `L ${fmt(x)} ${fmt(y)}`),
-    "Z",
-  ].join(" ");
+  // Band fill: a closed ring of the top run + reversed bottom run, with the
+  // interior bends rounded. The corners at x=0 / x=width stay sharp — they
+  // must sit flush against the pane line-highlights.
+  const ring = [...topPoints, ...bottomPoints.slice().reverse()];
+  const d =
+    roundedPath(ring, 0, (x) => x > 0.5 && x < width - 0.5) + " Z";
 
   const path = document.createElementNS(SVG_NS, "path");
   path.setAttribute("d", d);
   path.setAttribute("class", `jb-ribbon jb-ribbon-${role}`);
-  svg.appendChild(path);
+  target.appendChild(path);
 
   if (role === "conflict") {
-    // The frame is ONE polyline per edge, stretched across the neighboring
-    // panes (the overlay clips vertically but not horizontally) — a single
-    // SVG path cannot mismatch itself the way pane CSS borders and gutter
-    // strokes used to. +0.5 keeps the 1px stroke crisp on its pixel row.
+    // The frame is ONE path per edge, stretched across the neighboring panes
+    // (the overlay clips vertically but not horizontally) — a single SVG
+    // path cannot mismatch itself the way pane CSS borders and separate
+    // gutter strokes used to. +0.5 keeps the 1px stroke crisp on its row.
     const withExtensions = (points: Array<[number, number]>) => {
       const extended = points.slice();
       if (extend?.before) {
@@ -322,31 +332,88 @@ function appendRibbon(
       }
       return extended;
     };
-    appendEdge(svg, polyline(withExtensions(topPoints), 0.5));
-    appendEdge(svg, polyline(withExtensions(bottomPoints), 0.5));
+    appendEdge(target, roundedPath(withExtensions(topPoints), 0.5));
+    appendEdge(target, roundedPath(withExtensions(bottomPoints), 0.5));
   }
 }
 
-/** SVG path string through the points, with a uniform y offset. */
-function polyline(points: Array<[number, number]>, dy: number): string {
-  return points
-    .map(([x, y], i) => `${i === 0 ? "M" : "L"} ${fmt(x)} ${fmt(y + dy)}`)
-    .join(" ");
+/**
+ * SVG path through the points (with a uniform y offset), rounding the bend
+ * at each interior vertex with a quadratic join. `roundable` can exempt
+ * vertices that must stay sharp; first/last points are never rounded.
+ */
+function roundedPath(
+  points: Array<[number, number]>,
+  dy: number,
+  roundable: (x: number) => boolean = () => true,
+): string {
+  const pts = points.map(([x, y]) => [x, y + dy] as [number, number]);
+  let d = `M ${fmt(pts[0][0])} ${fmt(pts[0][1])}`;
+  for (let i = 1; i < pts.length - 1; i++) {
+    const [px, py] = pts[i];
+    if (!roundable(px)) {
+      d += ` L ${fmt(px)} ${fmt(py)}`;
+      continue;
+    }
+    const [ix, iy] = pts[i - 1];
+    const [ox, oy] = pts[i + 1];
+    const inLen = Math.hypot(px - ix, py - iy);
+    const outLen = Math.hypot(ox - px, oy - py);
+    const r = Math.min(BEND_RADIUS, inLen / 2, outLen / 2);
+    if (r < 0.5 || inLen === 0 || outLen === 0) {
+      d += ` L ${fmt(px)} ${fmt(py)}`;
+      continue;
+    }
+    const inX = px - ((px - ix) * r) / inLen;
+    const inY = py - ((py - iy) * r) / inLen;
+    const outX = px + ((ox - px) * r) / outLen;
+    const outY = py + ((oy - py) * r) / outLen;
+    d += ` L ${fmt(inX)} ${fmt(inY)} Q ${fmt(px)} ${fmt(py)} ${fmt(outX)} ${fmt(outY)}`;
+  }
+  const [lx, ly] = pts[pts.length - 1];
+  d += ` L ${fmt(lx)} ${fmt(ly)}`;
+  return d;
 }
 
-/** One solid conflict-boundary line across the gutter strip. */
-function appendEdge(svg: SVGSVGElement, d: string): void {
+/** One solid conflict-boundary line (gutter + extensions over the panes). */
+function appendEdge(target: SVGElement, d: string): void {
   const edge = document.createElementNS(SVG_NS, "path");
   edge.setAttribute("d", d);
   edge.setAttribute("class", "jb-ribbon-edge");
-  svg.appendChild(edge);
+  target.appendChild(edge);
 }
 
-function createSvg(): SVGSVGElement {
-  const svg = document.createElementNS(SVG_NS, "svg");
+interface RibbonSurface {
+  svg: SVGSVGElement;
+  /** All drawing goes here: clipped to the editor rows, free horizontally. */
+  layer: SVGGElement;
+}
+
+let clipIdCounter = 0;
+
+function createSvg(): RibbonSurface {
+  const svg = document.createElementNS(SVG_NS, "svg") as SVGSVGElement;
   svg.setAttribute("class", "jb-ribbon-overlay");
   svg.setAttribute("preserveAspectRatio", "none");
-  return svg;
+  // Vertical-only clip: frame lines extend horizontally across the panes but
+  // must never paint over the headers above. CSS clip-path inset() clamps
+  // negative (expanding) values, so the clip lives inside the SVG, where a
+  // rect can be arbitrarily wide. height="100%" tracks the viewport live.
+  const clipId = `jb-ribbon-clip-${++clipIdCounter}`;
+  const defs = document.createElementNS(SVG_NS, "defs");
+  const clip = document.createElementNS(SVG_NS, "clipPath");
+  clip.setAttribute("id", clipId);
+  const rect = document.createElementNS(SVG_NS, "rect");
+  rect.setAttribute("x", "-100000");
+  rect.setAttribute("y", "0");
+  rect.setAttribute("width", "200000");
+  rect.setAttribute("height", "100%");
+  clip.appendChild(rect);
+  defs.appendChild(clip);
+  const layer = document.createElementNS(SVG_NS, "g") as SVGGElement;
+  layer.setAttribute("clip-path", `url(#${clipId})`);
+  svg.append(defs, layer);
+  return { svg, layer };
 }
 
 function clearChildren(node: Element): void {

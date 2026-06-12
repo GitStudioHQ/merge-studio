@@ -16,7 +16,7 @@ import { LARGE_FILE_LINE_THRESHOLD } from "./limits";
 type Editor = monaco.editor.IStandaloneCodeEditor;
 
 /** Pixel height of the transfer action drawn in the gutter strip. */
-const ACTION_ROW_HEIGHT = 18;
+const ACTION_ROW_HEIGHT = 16;
 
 /** Debounce for re-running the diff while the right pane is being edited. */
 const REDIFF_DELAY_MS = 200;

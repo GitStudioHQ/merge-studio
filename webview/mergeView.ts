@@ -29,9 +29,9 @@ type Editor = monaco.editor.IStandaloneCodeEditor;
 type AcceptMode = "auto" | "replace" | "append";
 
 /** Pixel height of the ✕/≫ action row drawn in the gutter strips. */
-// Must fit inside one code line so the icon row stays within its band row
-// (line height is typically 18-19px); width can be larger than height.
-const ACTION_ROW_HEIGHT = 18;
+// Must fit inside one code line WITH clearance (line height is typically
+// 18-19px) so the icon row never touches the band's frame lines.
+const ACTION_ROW_HEIGHT = 16;
 
 export interface MergeRenderOptions {
   whitespace: WhitespaceMode;

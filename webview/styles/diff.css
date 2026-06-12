@@ -71,9 +71,9 @@ body.vscode-high-contrast-light {
   overflow: visible;
   pointer-events: none;
   z-index: 1;
-  /* Conflict frame lines extend horizontally across the panes; the negative
-   * inset clips them to the editor rows only (never over headers/toolbars). */
-  clip-path: inset(0 -9999px);
+  /* Vertical clipping (don't draw over headers) happens via an SVG-internal
+   * clipPath — CSS inset() clamps negative values, which would also clip the
+   * frame lines' horizontal extension across the panes. */
 }
 .jb-ribbon { stroke: none; }
 .jb-ribbon-inserted { fill: var(--jb-line-inserted); }
@@ -84,6 +84,8 @@ body.vscode-high-contrast-light {
   fill: none;
   stroke: var(--jb-edge-conflict);
   stroke-width: 1;
+  stroke-linejoin: round;
+  stroke-linecap: round;
 }
 
 /* Point markers for pure insertions/deletions (empty spans). */
@@ -311,21 +313,21 @@ body.vscode-high-contrast-light {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  /* 18px tall = fits inside one code line (so the row stays within its band
-   * row and never crosses the conflict frame); width gives the bigger target. */
+  /* 16px tall = fits inside one code line with clearance above and below
+   * (never touches the conflict frame); width gives the bigger target. */
   width: 20px;
-  height: 18px;
+  height: 16px;
   padding: 0;
   border: none;
-  border-radius: 3px;
+  border-radius: 2px;
   background: transparent;
   color: var(--vscode-editorLineNumber-foreground, #858585);
   user-select: none;
   transition: color 0.1s ease, background 0.1s ease;
 }
 .jb-gutter-btn .jb-svg svg {
-  width: 15px;
-  height: 15px;
+  width: 14px;
+  height: 14px;
 }
 .jb-gutter-btn:hover {
   color: var(--vscode-editorLineNumber-activeForeground, var(--vscode-foreground));

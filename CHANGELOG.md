@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.4
+
+- Restored the frame lines across the editor panes: CSS `clip-path: inset()` clamps negative (expanding) values, so the previous release accidentally clipped the extended lines at the gutter edge. The vertical-only clip now lives inside the SVG, where the clip rect can be arbitrarily wide.
+- Rounded the bends of the frame lines and band corners (quadratic joins, 7px radius) for a smoother look; flush corners against the pane highlights stay sharp.
+- Gutter buttons trimmed to 16px tall with a 2px radius — clear of the frame lines above and below.
+
 ## 0.1.3
 
 - Conflict frame lines are now each a single continuous SVG polyline spanning panes and gutters (drawn by the gutter overlays, extended across the neighboring panes). Previously the pane segments were CSS borders and the gutter segments SVG strokes — two renderers that could land a pixel apart at fractional scroll offsets or display scalings. One path cannot mismatch itself.
