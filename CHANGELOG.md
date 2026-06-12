@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.9
+
+- The Accept Left / Accept Right button that settled the merge now shows a green confirmation (check mark + green outline), so it is obvious which side was chosen. Undo and reset revoke it.
+
 ## 0.1.8
 
 - Resolution buttons deactivate when they have nothing left to do: Accept Left / Accept Right disable once every change is processed, and the Apply-non-conflicting toolbar actions disable when no non-conflicting changes remain. They re-enable on undo or reset.

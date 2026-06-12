@@ -208,6 +208,17 @@ body.vscode-high-contrast-light {
   color: var(--vscode-statusBarItem-warningForeground, #ffffff);
 }
 .jb-toolbar-btn[disabled] { opacity: 0.4; cursor: default; }
+/* Confirmation state: the Accept Left/Right button that settled the merge. */
+.jb-toolbar-btn.jb-confirmed[disabled] {
+  opacity: 1;
+  border-color: var(--vscode-testing-iconPassed, #4a8c4a);
+  color: var(--vscode-testing-iconPassed, #4a8c4a);
+  background: transparent;
+}
+.jb-toolbar-btn.jb-confirmed::before {
+  content: "✓";
+  margin-right: 5px;
+}
 
 .jb-toolbar-select {
   flex: 0 0 auto;

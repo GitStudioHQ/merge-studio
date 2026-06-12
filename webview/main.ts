@@ -303,6 +303,13 @@ function startMerge(root: HTMLElement, first: MergeInitPayload & { type: "init" 
     const nothingPending = counts.pending === 0;
     acceptLeftBtn.disabled = nothingPending;
     acceptRightBtn.disabled = nothingPending;
+    // Pending work again (undo, reset, re-diff) revokes the green
+    // confirmation; it is granted in the Accept click handlers, which run
+    // after the (synchronous) bulk accept settles the counts.
+    if (!nothingPending) {
+      acceptLeftBtn.classList.remove("jb-confirmed");
+      acceptRightBtn.classList.remove("jb-confirmed");
+    }
     const nonConflictingPending = counts.pending - counts.conflictsPending;
     applyLeftBtn.disabled = nonConflictingPending === 0;
     applyAllBtn.disabled = nonConflictingPending === 0;
@@ -434,8 +441,14 @@ function startMerge(root: HTMLElement, first: MergeInitPayload & { type: "init" 
   applyAllBtn.addEventListener("click", () => view.applyAllNonConflicting());
   applyRightBtn.addEventListener("click", () => view.applyNonConflictingSide("right"));
   magicBtn.addEventListener("click", () => view.resolveSimpleConflicts());
-  acceptLeftBtn.addEventListener("click", () => view.acceptAllLeft());
-  acceptRightBtn.addEventListener("click", () => view.acceptAllRight());
+  acceptLeftBtn.addEventListener("click", () => {
+    view.acceptAllLeft();
+    acceptLeftBtn.classList.toggle("jb-confirmed", counts.pending === 0);
+  });
+  acceptRightBtn.addEventListener("click", () => {
+    view.acceptAllRight();
+    acceptRightBtn.classList.toggle("jb-confirmed", counts.pending === 0);
+  });
 
   syncBtn.addEventListener("click", () => {
     const enabled = !view.getSyncScroll();
