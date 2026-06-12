@@ -7,6 +7,7 @@ import {
   getHeadVersion,
   isConflicted,
   watchRepositories,
+  type Repository,
 } from "./git/gitService";
 import {
   clearAutoOpenSuppression,
@@ -292,7 +293,32 @@ function registerConflictsDialog(context: vscode.ExtensionContext): void {
     statusItem.show();
   };
 
+  // Instant conflict detection: vscode.git's own watcher can lag a merge by
+  // a second or more. Watching the .git operation-state files directly and
+  // poking repo.status() the moment one appears makes mergeChanges (and so
+  // the dialog) update near-instantly.
+  const opStateWatched = new Set<string>();
+  const watchOpStateFiles = (repo: Repository) => {
+    const key = repo.rootUri.toString();
+    if (opStateWatched.has(key)) {
+      return;
+    }
+    opStateWatched.add(key);
+    const watcher = vscode.workspace.createFileSystemWatcher(
+      new vscode.RelativePattern(
+        vscode.Uri.joinPath(repo.rootUri, ".git"),
+        "{MERGE_HEAD,CHERRY_PICK_HEAD,REVERT_HEAD,rebase-merge,rebase-apply}",
+      ),
+    );
+    const poke = () => void repo.status?.();
+    watcher.onDidCreate(poke);
+    watcher.onDidChange(poke);
+    watcher.onDidDelete(poke);
+    context.subscriptions.push(watcher);
+  };
+
   watchRepositories(context, (repo) => {
+    watchOpStateFiles(repo);
     const key = repo.rootUri.toString();
     const conflictCount = repo.state.mergeChanges.length;
     conflictCounts.set(key, conflictCount);

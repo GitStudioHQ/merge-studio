@@ -1,18 +1,9 @@
-// The Conflicts dialog webview document. vscode-free on purpose: the test
-// harness (test-harness/gen-conflicts.ts) renders this in a real browser for
-// visual verification, and the controller (conflictsPanel.ts) hosts it.
-
-/** How long the Undo button must be held before it fires (the "unlock"). */
-export const UNDO_HOLD_MS = 1500;
-
-export function renderConflictsHtml(): string {
-  const nonce = getNonce();
-  return `<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
   <meta http-equiv="Content-Security-Policy"
-        content="default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-${nonce}'" />
+        content="default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-tUaoORSgMM6Omqx8WsDvDyU95Dz96jK4'" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Conflicts</title>
   <style>
@@ -291,7 +282,7 @@ export function renderConflictsHtml(): string {
     .counter { color: var(--vscode-descriptionForeground); font-size: 12px; }
   </style>
 </head>
-<body>
+<body style="--vscode-foreground:#ccc;--vscode-editor-background:#1e1e1e;--vscode-descriptionForeground:#9d9d9d;--vscode-panel-border:#3c3c3c;--vscode-font-family:-apple-system,sans-serif;--vscode-font-size:13px;--vscode-badge-background:#4d4d4d;--vscode-badge-foreground:#fff;--vscode-button-background:#0e639c;--vscode-button-foreground:#fff;--vscode-button-secondaryBackground:#3a3d41;--vscode-button-secondaryForeground:#f0f0f0;--vscode-errorForeground:#f48771;--vscode-editorWidget-background:#252526;">
   <div class="dialog">
     <header>
       <svg class="mark" viewBox="0 0 256 256" aria-hidden="true">
@@ -339,9 +330,15 @@ export function renderConflictsHtml(): string {
       <button class="primary" id="close" hidden>Close</button>
     </footer>
   </div>
-  <script nonce="${nonce}">
+  <script nonce="tUaoORSgMM6Omqx8WsDvDyU95Dz96jK4">
+  globalThis.acquireVsCodeApi = () => ({
+    postMessage: (m) => { (window.__sent = window.__sent || []).push(m); },
+    getState: () => undefined,
+    setState: () => {},
+  });
+</script><script nonce="tUaoORSgMM6Omqx8WsDvDyU95Dz96jK4">
     const vscode = acquireVsCodeApi();
-    const HOLD_MS = ${UNDO_HOLD_MS};
+    const HOLD_MS = 1500;
     const el = (id) => document.getElementById(id);
     const list = el("list");
 
@@ -535,16 +532,7 @@ export function renderConflictsHtml(): string {
       return btn;
     }
   </script>
-</body>
-</html>`;
-}
-
-function getNonce(): string {
-  let text = "";
-  const possible =
-    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
-  for (let i = 0; i < 32; i++) {
-    text += possible.charAt(Math.floor(Math.random() * possible.length));
-  }
-  return text;
-}
+<script nonce="tUaoORSgMM6Omqx8WsDvDyU95Dz96jK4">
+  window.postMessage({"type":"state","operation":"merge","yoursName":"master","theirsName":"feature","busy":false,"total":5,"resolved":5,"files":[{"uri":"file:///r/config.json","rel":"config.json","badge":"","status":"resolved","choice":"theirs"},{"uri":"file:///r/src/api.ts","rel":"src/api.ts","badge":"deleted by them","status":"resolved","choice":"theirs"},{"uri":"file:///r/src/cache.ts","rel":"src/cache.ts","badge":"","status":"resolved","choice":"yours"},{"uri":"file:///r/src/userService.js","rel":"src/userService.js","badge":"","status":"resolved","choice":"yours"},{"uri":"file:///r/src/util.ts","rel":"src/util.ts","badge":"","status":"resolved","choice":"merged"}]}, "*");
+</script></body>
+</html>

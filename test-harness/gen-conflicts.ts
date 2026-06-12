@@ -55,4 +55,14 @@ html = html.replace(
 );
 
 writeFileSync(join(import.meta.dirname, "conflicts.html"), html);
-console.log("wrote test-harness/conflicts.html");
+
+const doneState = {
+  ...state,
+  resolved: 5,
+  files: state.files.map((f) =>
+    f.status === "resolved" ? f : { ...f, status: "resolved", choice: f.rel.includes("api") ? "theirs" : "yours" },
+  ),
+};
+const doneHtml = html.replace(JSON.stringify(state), JSON.stringify(doneState));
+writeFileSync(join(import.meta.dirname, "conflicts-done.html"), doneHtml);
+console.log("wrote test-harness/conflicts.html and conflicts-done.html");

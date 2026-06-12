@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta http-equiv="Content-Security-Policy"
-        content="default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-gcNEaGl5CwEjbYlH4udVeXi64HnDb4vn'" />
+        content="default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-tUaoORSgMM6Omqx8WsDvDyU95Dz96jK4'" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Conflicts</title>
   <style>
@@ -97,17 +97,43 @@
 
     .done {
       display: flex;
+      flex-direction: column;
       align-items: center;
-      gap: 8px;
-      margin-bottom: 10px;
-      padding: 7px 12px;
-      border-radius: 5px;
+      gap: 6px;
+      margin-bottom: 14px;
+      padding: 16px 12px 14px;
+      border-radius: 6px;
       border: 1px solid var(--jb-ok);
       color: var(--jb-ok);
-      font-size: 12px;
-      background: rgba(86, 160, 94, 0.08);
+      background: rgba(86, 160, 94, 0.07);
+      text-align: center;
     }
-    .done .note { color: var(--vscode-descriptionForeground); }
+    .done h2 { margin: 4px 0 0; font-size: 14px; font-weight: 600; }
+    .done .note { color: var(--vscode-descriptionForeground); font-size: 12px; }
+    /* Success animation: the ring sweeps in like a loader, then the check draws. */
+    .done-ring circle {
+      fill: none;
+      stroke: var(--jb-ok);
+      stroke-width: 2;
+      stroke-linecap: round;
+      stroke-dasharray: 138;
+      stroke-dashoffset: 138;
+      transform: rotate(-90deg);
+      transform-origin: center;
+      animation: ring-sweep 0.7s ease-out forwards;
+    }
+    .done-ring path {
+      fill: none;
+      stroke: var(--jb-ok);
+      stroke-width: 3;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      stroke-dasharray: 30;
+      stroke-dashoffset: 30;
+      animation: check-draw 0.35s ease-out 0.6s forwards;
+    }
+    @keyframes ring-sweep { to { stroke-dashoffset: 0; } }
+    @keyframes check-draw { to { stroke-dashoffset: 0; } }
 
     .list {
       min-height: 0;
@@ -287,12 +313,12 @@
     </div>
 
     <div class="done" id="done" hidden>
-      <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-        <path d="M3 8.5 L6.5 12 L13 4.5" stroke="currentColor" stroke-width="2"
-              stroke-linecap="round" stroke-linejoin="round"/>
+      <svg class="done-ring" width="48" height="48" viewBox="0 0 48 48" aria-hidden="true">
+        <circle cx="24" cy="24" r="22"/>
+        <path d="M14 25 L21 32 L34 17"/>
       </svg>
-      <span>All conflicts resolved.</span>
-      <span class="note">Commit when ready — hold Undo on a file to revert it. This dialog closes itself.</span>
+      <h2>All conflicts resolved</h2>
+      <span class="note">Review below — hold Undo to revert a file, or close when you're ready. Committing the merge closes this dialog too.</span>
     </div>
 
     <div class="list" id="list"></div>
@@ -301,21 +327,23 @@
       <button class="danger" id="abort"></button>
       <span class="spacer"></span>
       <span class="counter" id="counter"></span>
+      <button class="primary" id="close" hidden>Close</button>
     </footer>
   </div>
-  <script nonce="gcNEaGl5CwEjbYlH4udVeXi64HnDb4vn">
+  <script nonce="tUaoORSgMM6Omqx8WsDvDyU95Dz96jK4">
   globalThis.acquireVsCodeApi = () => ({
     postMessage: (m) => { (window.__sent = window.__sent || []).push(m); },
     getState: () => undefined,
     setState: () => {},
   });
-</script><script nonce="gcNEaGl5CwEjbYlH4udVeXi64HnDb4vn">
+</script><script nonce="tUaoORSgMM6Omqx8WsDvDyU95Dz96jK4">
     const vscode = acquireVsCodeApi();
-    const HOLD_MS = 3000;
+    const HOLD_MS = 1500;
     const el = (id) => document.getElementById(id);
     const list = el("list");
 
     el("abort").addEventListener("click", () => vscode.postMessage({ type: "abort" }));
+    el("close").addEventListener("click", () => vscode.postMessage({ type: "close" }));
 
     window.addEventListener("message", (event) => {
       const state = event.data;
@@ -350,6 +378,7 @@
       }
 
       el("done").hidden = !allDone;
+      el("close").hidden = !allDone;
 
       const abortBtn = el("abort");
       abortBtn.textContent = "Cancel " + cap(state.operation);
@@ -503,7 +532,7 @@
       return btn;
     }
   </script>
-<script nonce="gcNEaGl5CwEjbYlH4udVeXi64HnDb4vn">
+<script nonce="tUaoORSgMM6Omqx8WsDvDyU95Dz96jK4">
   window.postMessage({"type":"state","operation":"merge","yoursName":"master","theirsName":"feature","busy":false,"total":5,"resolved":3,"files":[{"uri":"file:///r/config.json","rel":"config.json","badge":"","status":"resolved","choice":"theirs"},{"uri":"file:///r/src/api.ts","rel":"src/api.ts","badge":"deleted by them","status":"pending","choice":null},{"uri":"file:///r/src/cache.ts","rel":"src/cache.ts","badge":"","status":"busy","choice":null},{"uri":"file:///r/src/userService.js","rel":"src/userService.js","badge":"","status":"resolved","choice":"yours"},{"uri":"file:///r/src/util.ts","rel":"src/util.ts","badge":"","status":"resolved","choice":"merged"}]}, "*");
 </script></body>
 </html>

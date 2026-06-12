@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.1
+
+- Hold-to-undo trimmed to 1.5 seconds.
+- Conflicts are detected (and the dialog opens) near-instantly: the extension watches the `.git` operation-state files (MERGE_HEAD, rebase dirs, …) and pokes vscode.git for a re-scan the moment one appears, instead of waiting for its slower watcher.
+- The dialog no longer auto-closes when everything is resolved: an animated green check confirmation appears above the (still revertable) file list, with a Close button when you're ready. Committing or aborting the merge still closes it automatically.
+
 ## 0.2.0
 
 - Resolved files now STAY in the Conflicts dialog — green-tinted, check-marked, and labeled with how they were settled ("kept yours", "kept theirs", or "merged" for merge-editor/external resolutions).

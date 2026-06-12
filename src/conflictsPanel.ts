@@ -55,7 +55,8 @@ type PanelMessage =
   | { type: "accept"; side: "ours" | "theirs"; uri: string }
   | { type: "merge"; uri: string }
   | { type: "undo"; uri: string }
-  | { type: "abort" };
+  | { type: "abort" }
+  | { type: "close" };
 
 export class ConflictsPanel {
   private static current: ConflictsPanel | undefined;
@@ -103,7 +104,6 @@ export class ConflictsPanel {
   /** Conflict restored by undo but not yet re-listed by git. */
   private readonly optimisticRestored = new Set<string>();
   private lastPending: number | undefined;
-  private closeTimer: ReturnType<typeof setTimeout> | undefined;
   /** Uri currently being accepted/undone (its row shows a spinner). */
   private busyUri: string | undefined;
   /** Guards refresh() calls that resolve after the panel was disposed. */
@@ -130,9 +130,6 @@ export class ConflictsPanel {
     this.subs.push(repo.state.onDidChange(() => void this.refresh()));
     this.panel.onDidDispose(() => {
       this.disposed = true;
-      if (this.closeTimer) {
-        clearTimeout(this.closeTimer);
-      }
       this.subs.forEach((sub) => sub.dispose());
       if (ConflictsPanel.current === this) {
         ConflictsPanel.current = undefined;
@@ -205,10 +202,6 @@ export class ConflictsPanel {
     const total = this.files.size;
     if (pendingCount > 0) {
       this.hadConflicts = true;
-      if (this.closeTimer) {
-        clearTimeout(this.closeTimer);
-        this.closeTimer = undefined;
-      }
     }
 
     // detectOperation costs several subprocesses — reuse the cached answer
@@ -262,11 +255,10 @@ export class ConflictsPanel {
       resolved: total - pendingCount,
     });
 
-    // All conflicts resolved: keep the green list around for review/undo,
-    // then close on its own.
-    if (pendingCount === 0 && this.hadConflicts && !this.closeTimer) {
-      this.closeTimer = setTimeout(() => this.panel.dispose(), 6000);
-    }
+    // All conflicts resolved: the dialog stays open (success state + Close
+    // button + per-file undo) until the user closes it — or until the merge
+    // is committed/aborted, which the op-gone check above turns into an
+    // automatic dispose.
   }
 
   private async onMessage(message: PanelMessage): Promise<void> {
@@ -282,6 +274,9 @@ export class ConflictsPanel {
         break;
       case "abort":
         await this.abort();
+        break;
+      case "close":
+        this.panel.dispose();
         break;
       default:
         break;
