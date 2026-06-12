@@ -104,21 +104,46 @@ export class RibbonOverlay {
       const role = blockRole(block);
       const resultSpan = this.options.resultSpanOf?.(block) ?? block.baseSpan;
 
-      if (block.left && !this.options.isSideDone?.(block, "left")) {
+      const leftPending =
+        !!block.left && !this.options.isSideDone?.(block, "left");
+      const rightPending =
+        !!block.right && !this.options.isSideDone?.(block, "right");
+      // Pane widths for the conflict frame lines, which extend out of the
+      // gutter across the neighboring panes (single-renderer continuity).
+      // Gutter A covers the left pane (and the result only when gutter B
+      // won't draw, to avoid double-compositing the translucent stroke);
+      // gutter B covers the result and right panes.
+      const leftWidth = this.editors.left.getLayoutInfo().width;
+      const resultWidth = this.editors.result.getLayoutInfo().width;
+      const rightWidth = this.editors.right.getLayoutInfo().width;
+
+      if (leftPending && block.left) {
         const side = spanY(this.editors.left, block.left.sideSpan, lineHeight);
         const result = spanY(this.editors.result, resultSpan, lineHeight);
-        appendRibbon(this.svgA, widthA, heightA, side, result, role, {
-          side: "a",
-          width: MERGE_ICON_STRIP,
-        });
+        appendRibbon(
+          this.svgA,
+          widthA,
+          heightA,
+          side,
+          result,
+          role,
+          { side: "a", width: MERGE_ICON_STRIP },
+          { before: leftWidth, after: rightPending ? 0 : resultWidth },
+        );
       }
-      if (block.right && !this.options.isSideDone?.(block, "right")) {
+      if (rightPending && block.right) {
         const result = spanY(this.editors.result, resultSpan, lineHeight);
         const side = spanY(this.editors.right, block.right.sideSpan, lineHeight);
-        appendRibbon(this.svgB, widthB, heightB, result, side, role, {
-          side: "b",
-          width: MERGE_ICON_STRIP,
-        });
+        appendRibbon(
+          this.svgB,
+          widthB,
+          heightB,
+          result,
+          side,
+          role,
+          { side: "b", width: MERGE_ICON_STRIP },
+          { before: resultWidth, after: rightWidth },
+        );
       }
     }
   }
@@ -239,6 +264,8 @@ function appendRibbon(
   b: [number, number],
   role: string,
   strip?: IconStrip,
+  /** Conflict frame lines extend this far beyond the gutter, over the panes. */
+  extend?: { before: number; after: number },
 ): void {
   const [aTop, aBottom] = a;
   const [bTop, bBottom] = b;
@@ -281,12 +308,22 @@ function appendRibbon(
   svg.appendChild(path);
 
   if (role === "conflict") {
-    // +0.5 centers the 1px stroke inside the same pixel row as the panes'
-    // CSS borders. The decoration divs are content-box, so border-top paints
-    // at [y, y+1) and border-bottom one pixel BELOW the line box at
-    // [y, y+1) of the boundary — both edges land on the boundary's own row.
-    appendEdge(svg, polyline(topPoints, 0.5));
-    appendEdge(svg, polyline(bottomPoints, 0.5));
+    // The frame is ONE polyline per edge, stretched across the neighboring
+    // panes (the overlay clips vertically but not horizontally) — a single
+    // SVG path cannot mismatch itself the way pane CSS borders and gutter
+    // strokes used to. +0.5 keeps the 1px stroke crisp on its pixel row.
+    const withExtensions = (points: Array<[number, number]>) => {
+      const extended = points.slice();
+      if (extend?.before) {
+        extended.unshift([-extend.before, points[0][1]]);
+      }
+      if (extend?.after) {
+        extended.push([width + extend.after, points[points.length - 1][1]]);
+      }
+      return extended;
+    };
+    appendEdge(svg, polyline(withExtensions(topPoints), 0.5));
+    appendEdge(svg, polyline(withExtensions(bottomPoints), 0.5));
   }
 }
 

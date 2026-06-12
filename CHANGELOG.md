@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.3
+
+- Conflict frame lines are now each a single continuous SVG polyline spanning panes and gutters (drawn by the gutter overlays, extended across the neighboring panes). Previously the pane segments were CSS borders and the gutter segments SVG strokes — two renderers that could land a pixel apart at fractional scroll offsets or display scalings. One path cannot mismatch itself.
+
 ## 0.1.2
 
 - Gutter action buttons no longer overflow the band frame: 18px tall (fits a code line) with the wider 20px hit area kept, clamped below the band's top border.

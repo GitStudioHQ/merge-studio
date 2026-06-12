@@ -46,6 +46,10 @@ export class DecorationManager {
     const showInner = options.showInner ?? true;
     const palette = rulerPalette();
 
+    // Note: conflict frame lines are NOT drawn here. They are SVG polylines
+    // in the gutter overlays (ribbons.ts) that extend across the panes — a
+    // single renderer keeps them pixel-continuous, which CSS borders +
+    // separate SVG strokes never quite were.
     for (const block of model.blocks) {
       const role = blockRole(block);
       const resolved = options.isResolved?.(block) ?? false;
@@ -53,14 +57,10 @@ export class DecorationManager {
         resolved || (options.isSideDone?.(block, "left") ?? false);
       const rightDone =
         resolved || (options.isSideDone?.(block, "right") ?? false);
-      const conflictEdges = !resolved && block.kind === "conflict";
 
       if (!resolved) {
         const span = options.resultSpanOf?.(block) ?? block.baseSpan;
         pushLine(result, this.editors.result, span, role, palette[role]);
-        if (conflictEdges) {
-          pushConflictEdges(result, span);
-        }
         if (showInner) {
           pushInner(result, block.left?.innerBase, role);
           pushInner(result, block.right?.innerBase, role);
@@ -71,9 +71,6 @@ export class DecorationManager {
           pushResolved(left, this.editors.left, block.left.sideSpan);
         } else {
           pushLine(left, this.editors.left, block.left.sideSpan, role);
-          if (conflictEdges) {
-            pushConflictEdges(left, block.left.sideSpan);
-          }
           if (showInner) {
             pushInner(left, block.left.innerSide, role);
           }
@@ -84,9 +81,6 @@ export class DecorationManager {
           pushResolved(right, this.editors.right, block.right.sideSpan);
         } else {
           pushLine(right, this.editors.right, block.right.sideSpan, role);
-          if (conflictEdges) {
-            pushConflictEdges(right, block.right.sideSpan);
-          }
           if (showInner) {
             pushInner(right, block.right.innerSide, role);
           }
@@ -224,39 +218,6 @@ function pushResolved(target: Deco[], editor: Editor, span: LineSpan): void {
       isWholeLine: true,
       className: "jb-line-resolved",
       marginClassName: "jb-line-resolved",
-    },
-  });
-}
-
-/**
- * IntelliJ frames unresolved conflicts with dashed lines above the first and
- * below the last line, continuing the gutter band's dashed edges.
- */
-function pushConflictEdges(target: Deco[], span: LineSpan): void {
-  if (isEmptySpan(span)) {
-    return;
-  }
-  // zIndex keeps the 1px dashed edges painted above the opaque line wash.
-  // Without it Monaco orders same-line decorations by range, which paints the
-  // top edge (shorter range, same start) underneath the multi-line background
-  // — so top dashes vanished on multi-line blocks but showed on single-line
-  // ones.
-  target.push({
-    range: new monaco.Range(span.start, 1, span.start, 1),
-    options: {
-      isWholeLine: true,
-      className: "jb-conflict-top",
-      marginClassName: "jb-conflict-top",
-      zIndex: 5,
-    },
-  });
-  target.push({
-    range: new monaco.Range(span.endExclusive - 1, 1, span.endExclusive - 1, 1),
-    options: {
-      isWholeLine: true,
-      className: "jb-conflict-bottom",
-      marginClassName: "jb-conflict-bottom",
-      zIndex: 5,
     },
   });
 }

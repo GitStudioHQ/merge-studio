@@ -51,13 +51,9 @@ body.vscode-high-contrast-light {
   border-left: 2px solid var(--jb-edge-resolved);
 }
 
-/* Unresolved conflicts are framed with solid boundary lines that run
- * end-to-end: pane + line-number margin here, gutter strips via the ribbon
- * edges — one continuous line across all five columns. The z-index backstops
- * the decoration zIndex (margin overlays ignore it) so the lines always
- * paint above the opaque line wash. */
-.jb-conflict-top { border-top: 1px solid var(--jb-edge-conflict); z-index: 1; }
-.jb-conflict-bottom { border-bottom: 1px solid var(--jb-edge-conflict); z-index: 1; }
+/* Conflict frame lines are single SVG polylines drawn by the gutter ribbon
+ * overlays, extended across the neighboring panes (see ribbons.ts) — one
+ * renderer, one path, so the line is pixel-continuous end to end. */
 
 /* Character-level overlays (Monaco inlineClassName decorations). */
 .jb-inner-inserted { background-color: var(--jb-inner-inserted); border-radius: 2px; }
@@ -75,6 +71,9 @@ body.vscode-high-contrast-light {
   overflow: visible;
   pointer-events: none;
   z-index: 1;
+  /* Conflict frame lines extend horizontally across the panes; the negative
+   * inset clips them to the editor rows only (never over headers/toolbars). */
+  clip-path: inset(0 -9999px);
 }
 .jb-ribbon { stroke: none; }
 .jb-ribbon-inserted { fill: var(--jb-line-inserted); }
