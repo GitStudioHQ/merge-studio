@@ -119,23 +119,25 @@ export function activate(context: vscode.ExtensionContext): void {
   context.subscriptions.push(
     vscode.commands.registerCommand(
       "jbMerge.diffWithJetBrains",
-      async (clicked?: unknown, selected?: unknown) => {
-        const selectedUris = collectUris(selected);
-        if (selectedUris.length === 2) {
-          await diffFilesWithJetBrains(selectedUris[0], selectedUris[1]);
-          return;
+      (clicked?: unknown, selected?: unknown) =>
+        diffWithJetBrains(clicked, selected),
+    ),
+  );
+
+  // Routed "Compare" entry: one menu item that honors the jbMerge.diffTool
+  // setting — the embedded diff by default, the real JetBrains IDE when chosen
+  // (and installed; otherwise it quietly uses the embedded diff).
+  context.subscriptions.push(
+    vscode.commands.registerCommand(
+      "jbMerge.compare",
+      (clicked?: unknown, selected?: unknown) => {
+        const tool = vscode.workspace
+          .getConfiguration("jbMerge")
+          .get<string>("diffTool", "embedded");
+        if (tool === "jetbrains" && findConfiguredLauncher()) {
+          return diffWithJetBrains(clicked, selected);
         }
-        const uri =
-          resolveUriArg(clicked) ??
-          selectedUris[0] ??
-          vscode.window.activeTextEditor?.document.uri;
-        if (!uri) {
-          void vscode.window.showWarningMessage(
-            "Merge Studio: open a file or select two files to compare.",
-          );
-          return;
-        }
-        await diffAgainstHeadWithJetBrains(uri);
+        return openDiff(context, clicked, selected);
       },
     ),
   );
@@ -177,6 +179,32 @@ async function openDiff(
     return;
   }
   await DiffPanel.create(context, headState(uri, head.ref));
+}
+
+/**
+ * JetBrains-IDE diff with the same target resolution as {@link openDiff}: two
+ * selected files diff against each other; otherwise the file vs its git HEAD.
+ */
+async function diffWithJetBrains(
+  clicked?: unknown,
+  selected?: unknown,
+): Promise<void> {
+  const selectedUris = collectUris(selected);
+  if (selectedUris.length === 2) {
+    await diffFilesWithJetBrains(selectedUris[0], selectedUris[1]);
+    return;
+  }
+  const uri =
+    resolveUriArg(clicked) ??
+    selectedUris[0] ??
+    vscode.window.activeTextEditor?.document.uri;
+  if (!uri) {
+    void vscode.window.showWarningMessage(
+      "Merge Studio: open a file or select two files to compare.",
+    );
+    return;
+  }
+  await diffAgainstHeadWithJetBrains(uri);
 }
 
 /** Working tree (current file, editable) vs HEAD (read-only). */

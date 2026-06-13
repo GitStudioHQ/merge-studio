@@ -65,6 +65,19 @@
           "default": "webview",
           "description": "Which resolver to use for conflicts. 'webview' uses the embedded editor; 'jetbrains' opens the real installed IDE."
         },
+        "jbMerge.diffTool": {
+          "type": "string",
+          "enum": [
+            "embedded",
+            "jetbrains"
+          ],
+          "enumDescriptions": [
+            "Use the built-in embedded diff editor (no external IDE needed).",
+            "Open the diff in the real installed JetBrains IDE."
+          ],
+          "default": "embedded",
+          "description": "Which tool the 'Merge Studio: Compare' command uses. 'jetbrains' opens the real IDE, falling back to the embedded diff if none is installed."
+        },
         "jbMerge.preferredIde": {
           "type": "string",
           "enum": [
@@ -128,6 +141,10 @@
         "category": "Merge Studio"
       },
       {
+        "command": "jbMerge.compare",
+        "title": "Merge Studio: Compare"
+      },
+      {
         "command": "jbMerge.openDiff",
         "title": "Open in Embedded Diff",
         "category": "Merge Studio"
@@ -177,16 +194,15 @@
       ],
       "explorer/context": [
         {
-          "command": "jbMerge.openDiff",
+          "command": "jbMerge.compare",
+          "when": "!explorerResourceIsFolder",
           "group": "3_compare@1"
-        },
-        {
-          "command": "jbMerge.diffWithJetBrains",
-          "when": "jbMerge.ideAvailable",
-          "group": "3_compare@2"
         }
       ],
       "commandPalette": [
+        {
+          "command": "jbMerge.compare"
+        },
         {
           "command": "jbMerge.diffWithJetBrains"
         },
