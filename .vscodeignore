@@ -14,3 +14,7 @@ tsconfig.json
 .editorconfig
 **/.DS_Store
 test-harness/**
+.github/**
+media/icon.svg
+media/screenshots/**
+test/**

@@ -1,62 +1,68 @@
 # Changelog
 
-## 0.2.1
+## 0.2.2 — 2026-06-13
+
+- Pre-publish sweep: workspace-trust and virtual-workspace capabilities declared, `extensionKind: ["workspace"]`, Q&A routed to GitHub issues, slimmer vsix (test/CI files excluded), bundled libraries moved to devDependencies.
+- README: marketplace screenshots, install/requirements section, and the conflicts-dialog docs caught up with 0.2.x behavior.
+- New regression tests: rebase/cherry-pick operation detection, the `git reset --merge` fallback for stash-pop conflicts, MERGE_MSG parsing variants (octopus merges, custom messages), and Conflicts-dialog HTML invariants (CSP nonces, the hidden-attribute fix, the undo hold duration).
+
+## 0.2.1 — 2026-06-13
 
 - Hold-to-undo trimmed to 1.5 seconds.
 - Conflicts are detected (and the dialog opens) near-instantly: the extension watches the `.git` operation-state files (MERGE_HEAD, rebase dirs, …) and pokes vscode.git for a re-scan the moment one appears, instead of waiting for its slower watcher.
 - The dialog no longer auto-closes when everything is resolved: an animated green check confirmation appears above the (still revertable) file list, with a Close button when you're ready. Committing or aborting the merge still closes it automatically.
 
-## 0.2.0
+## 0.2.0 — 2026-06-13
 
 - Resolved files now STAY in the Conflicts dialog — green-tinted, check-marked, and labeled with how they were settled ("kept yours", "kept theirs", or "merged" for merge-editor/external resolutions).
 - Hold-to-undo: every resolved row has an Undo button that must be held for 3 seconds (a fill sweeps the button) before it fires — `git checkout -m` then restores the original conflict, including resolutions made in the merge editor. Covered by new round-trip tests.
 - Accept Yours/Theirs is much faster: one fewer git subprocess per accept, the in-progress-operation probe is cached between refreshes, rows update optimistically instead of waiting for VS Code's git watcher, and the extension pokes git for an immediate re-scan.
 - When everything is resolved, the dialog keeps the green list around for review/undo and closes itself after a few seconds.
 
-## 0.1.9
+## 0.1.9 — 2026-06-13
 
 - The Accept Left / Accept Right button that settled the merge now shows a green confirmation (check mark + green outline), so it is obvious which side was chosen. Undo and reset revoke it.
 
-## 0.1.8
+## 0.1.8 — 2026-06-13
 
 - Resolution buttons deactivate when they have nothing left to do: Accept Left / Accept Right disable once every change is processed, and the Apply-non-conflicting toolbar actions disable when no non-conflicting changes remain. They re-enable on undo or reset.
 
-## 0.1.7
+## 0.1.7 — 2026-06-13
 
 - Conflict frame edges are now one single path spanning every covered column (left pane, gutter A, result, gutter B, right pane). Previously the line was split per gutter, leaving the bend at the gutter-A/result junction on a path endpoint — which cannot be rounded — so the left side showed sharp corners while the right side was smooth. All bends are interior vertices now, all rounded, verified in the browser harness at retina scale.
 
-## 0.1.6
+## 0.1.6 — 2026-06-13
 
 - Fixed the ribbon stage rendering at its intrinsic 300×150px size: SVG is a replaced element, so `left/right` insets alone don't stretch it — everything beyond ~300px (gutter bands, frame lines over the result and right panes) was silently clipped. The stage now gets explicit width/height. Verified end-to-end in a real-browser harness (`test-harness/`): continuous frame lines across all five columns, band fills, scrolled states, and retina rendering, with path geometry checked numerically.
 
-## 0.1.5
+## 0.1.5 — 2026-06-13
 
 - Bands and conflict frame lines now draw on a single full-width SVG stage spanning all five columns (panes + gutters), in absolute coordinates. The previous per-gutter overlays needed their strokes to escape the gutter box, which browser clipping kept eating — on the stage nothing leaves the viewport, so the frame lines finally render across the editors and their line numbers too.
 
-## 0.1.4
+## 0.1.4 — 2026-06-13
 
 - Restored the frame lines across the editor panes: CSS `clip-path: inset()` clamps negative (expanding) values, so the previous release accidentally clipped the extended lines at the gutter edge. The vertical-only clip now lives inside the SVG, where the clip rect can be arbitrarily wide.
 - Rounded the bends of the frame lines and band corners (quadratic joins, 7px radius) for a smoother look; flush corners against the pane highlights stay sharp.
 - Gutter buttons trimmed to 16px tall with a 2px radius — clear of the frame lines above and below.
 
-## 0.1.3
+## 0.1.3 — 2026-06-12
 
 - Conflict frame lines are now each a single continuous SVG polyline spanning panes and gutters (drawn by the gutter overlays, extended across the neighboring panes). Previously the pane segments were CSS borders and the gutter segments SVG strokes — two renderers that could land a pixel apart at fractional scroll offsets or display scalings. One path cannot mismatch itself.
 
-## 0.1.2
+## 0.1.2 — 2026-06-12
 
 - Gutter action buttons no longer overflow the band frame: 18px tall (fits a code line) with the wider 20px hit area kept, clamped below the band's top border.
 - Disabled scroll animation in all panes — smooth scrolling let the panes and gutter overlays animate through transiently different offsets, visibly detaching bands and frame lines mid-scroll.
 - Faster re-alignment after result edits (120ms debounce).
 
-## 0.1.1
+## 0.1.1 — 2026-06-12
 
 - Gutter accept/ignore icons now live inside a straight, rectangular segment of the change band that hugs the side pane (the slant to the result pane starts after it, as in IntelliJ) and are anchored to that pane's rows — they no longer drift out of the color while scrolling.
 - Bigger gutter action buttons (20px, 15px icons) and wider merge gutters to fit the icon strip.
 - The 2-way diff's transfer arrow gets the same strip treatment.
 - Accept-button hover color fixed for light themes.
 
-## 0.1.0 — first public release
+## 0.1.0 — 2026-06-11 — first release under the Merge Studio name
 
 Renamed to **Merge Studio** (formerly "JetBrains-style Merge & Diff").
 

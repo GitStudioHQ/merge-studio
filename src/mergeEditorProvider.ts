@@ -10,8 +10,9 @@ import type { WebviewMessage } from "./shared/protocol";
  * Hosts the JetBrains-style 3-way merge UI inside a webview, backed by the
  * conflicted file's TextDocument (so save / dirty / undo come from VSCode).
  *
- * M1: resolves base/ours/theirs (git stages, with a marker fallback) and
- * streams them to the webview. Later milestones render them as Monaco panes.
+ * Resolves base/ours/theirs (git stages, with a marker fallback) and streams
+ * them to the webview, which renders them as three Monaco panes
+ * (webview/mergeView.ts).
  */
 export class MergeEditorProvider implements vscode.CustomTextEditorProvider {
   public static readonly viewType = "jbMerge.mergeEditor";

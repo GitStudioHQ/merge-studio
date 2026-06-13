@@ -529,7 +529,7 @@ export class MergeView {
     this.refresh();
   }
 
-  // --- bulk auto-resolve actions (M9) ---
+  // --- bulk auto-resolve actions ---
 
   /** Accepts (replace) every left-only / right-only / both-same block. */
   public applyAllNonConflicting(): void {

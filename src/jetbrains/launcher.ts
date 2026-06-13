@@ -22,7 +22,7 @@ export function findConfiguredLauncher(): JetBrainsLauncher | undefined {
 }
 
 /** Reads the configured/auto-detected JetBrains launcher, or warns if none. */
-export function resolveLauncher(
+function resolveLauncher(
   fallback?: EmbeddedFallback,
 ): JetBrainsLauncher | undefined {
   const launcher = findConfiguredLauncher();
@@ -178,7 +178,7 @@ function spawnDetached(launcher: JetBrainsLauncher, args: string[]): void {
   });
   child.on("error", (error) => {
     void vscode.window.showErrorMessage(
-      `JetBrains: couldn't launch ${launcher.name} — ${error.message}`,
+      `Merge Studio: couldn't launch ${launcher.name} — ${error.message}`,
     );
   });
   child.unref();

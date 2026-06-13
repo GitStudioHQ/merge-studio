@@ -446,9 +446,6 @@ export class DiffView {
     return this.right?.getModel()?.getValue() ?? "";
   }
 
-  public isLargeFile(): boolean {
-    return this.largeFile;
-  }
 
   // --- alignment / scrolling / observers ---
 

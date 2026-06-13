@@ -7,6 +7,7 @@ import * as path from "node:path";
 import {
   abortOperation,
   acceptSide,
+  describeIncoming,
   detectOperation,
   restoreConflict,
 } from "../src/git/mergeOps";
@@ -150,6 +151,96 @@ test("abortOperation restores the pre-merge state", async () => {
     assert.equal(read(root, "a.txt"), "main\n");
     assert.equal(read(root, "b.txt"), "main\n");
     assert.equal(git(root, "status", "--porcelain").trim(), "");
+  } finally {
+    cleanup(root);
+  }
+});
+
+test("detectOperation distinguishes rebase and cherry-pick from merge", async () => {
+  const root = makeConflictedRepo();
+  try {
+    git(root, "merge", "--abort");
+
+    // Conflicted cherry-pick: pick feature's a.txt change onto main.
+    try {
+      git(root, "cherry-pick", "feature");
+      assert.fail("cherry-pick unexpectedly succeeded");
+    } catch {
+      // conflict expected
+    }
+    assert.equal(await detectOperation(root), "cherry-pick");
+    git(root, "cherry-pick", "--abort");
+
+    // Conflicted rebase: rebase feature onto main.
+    git(root, "checkout", "feature");
+    try {
+      git(root, "rebase", "main");
+      assert.fail("rebase unexpectedly succeeded");
+    } catch {
+      // conflict expected
+    }
+    assert.equal(await detectOperation(root), "rebase");
+    git(root, "rebase", "--abort");
+    assert.equal(await detectOperation(root), undefined);
+  } finally {
+    cleanup(root);
+  }
+});
+
+test("abortOperation falls back to reset --merge for stash-pop conflicts", async () => {
+  const root = makeConflictedRepo();
+  try {
+    git(root, "merge", "--abort");
+
+    // Conflicted stash pop: stash an edit, make a conflicting commit, pop.
+    write(root, "a.txt", "stashed edit\n");
+    git(root, "stash");
+    write(root, "a.txt", "committed edit\n");
+    git(root, "commit", "-am", "conflicting commit");
+    try {
+      git(root, "stash", "pop");
+      assert.fail("stash pop unexpectedly succeeded");
+    } catch {
+      // conflict expected
+    }
+    assert.notEqual(git(root, "ls-files", "-u").trim(), ""); // conflicted
+    assert.equal(await detectOperation(root), undefined); // but no op file
+
+    assert.equal(await abortOperation(root), "reset");
+    assert.equal(git(root, "ls-files", "-u").trim(), ""); // conflict unwound
+    assert.equal(read(root, "a.txt"), "committed edit\n");
+  } finally {
+    cleanup(root);
+  }
+});
+
+// MERGE_MSG parsing: the dialog's "theirs" pill. describeIncoming reads
+// .git/MERGE_MSG, so the variants can be written directly.
+function writeMergeMsg(root: string, firstLine: string): void {
+  const gitDir = git(root, "rev-parse", "--git-dir").trim();
+  const resolved = path.isAbsolute(gitDir) ? gitDir : path.join(root, gitDir);
+  fs.writeFileSync(path.join(resolved, "MERGE_MSG"), firstLine + "\n");
+}
+
+test("describeIncoming parses MERGE_MSG variants", async () => {
+  const root = makeConflictedRepo(); // mid-merge, MERGE_MSG exists
+  try {
+    assert.equal(await describeIncoming(root), "feature"); // the real one
+
+    writeMergeMsg(root, "Merge remote-tracking branch 'origin/feature'");
+    assert.equal(await describeIncoming(root), "origin/feature");
+
+    // Octopus merges use the plural form (regression: the singular-only
+    // regex used to miss these entirely).
+    writeMergeMsg(root, "Merge branches 'b1' and 'b2'");
+    assert.equal(await describeIncoming(root), "b1, b2");
+
+    writeMergeMsg(root, "Merge tag 'v1.2.0'");
+    assert.equal(await describeIncoming(root), "v1.2.0");
+
+    // Custom -m messages carry no branch name — must NOT false-positive.
+    writeMergeMsg(root, "custom message from -m");
+    assert.equal(await describeIncoming(root), undefined);
   } finally {
     cleanup(root);
   }

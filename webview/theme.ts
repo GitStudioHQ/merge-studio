@@ -7,7 +7,7 @@ import * as monaco from "monaco-editor";
 
 export type ThemeKind = "light" | "dark" | "hc-dark" | "hc-light";
 
-export function currentThemeKind(): ThemeKind {
+function currentThemeKind(): ThemeKind {
   const classes = document.body.classList;
   if (classes.contains("vscode-high-contrast-light")) {
     return "hc-light";

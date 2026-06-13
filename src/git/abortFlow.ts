@@ -8,7 +8,7 @@ import { abortOperation, detectOperation } from "./mergeOps";
 const MERGE_EDITOR_VIEW_TYPE = "jbMerge.mergeEditor";
 
 /** Human name of the in-progress operation ("merge" when indeterminate). */
-export async function describeOperation(root: string): Promise<string> {
+async function describeOperation(root: string): Promise<string> {
   return (await detectOperation(root)) ?? "merge";
 }
 

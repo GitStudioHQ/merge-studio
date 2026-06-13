@@ -2,7 +2,7 @@
   "name": "merge-studio",
   "displayName": "Merge Studio — JetBrains-Style Merge & Diff",
   "description": "Resolve merge conflicts like in JetBrains IDEs (IntelliJ, PyCharm, WebStorm): a 3-way merge editor with ribbons, undo history and a conflicts dialog, plus side-by-side diff — for VS Code and Cursor.",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "publisher": "anton-arnaudov",
   "license": "MIT",
   "icon": "media/icon.png",
@@ -25,8 +25,7 @@
     "vscode": "^1.74.0"
   },
   "categories": [
-    "SCM Providers",
-    "Other"
+    "SCM Providers"
   ],
   "keywords": [
     "merge",
@@ -55,7 +54,10 @@
       "properties": {
         "jbMerge.conflictResolver": {
           "type": "string",
-          "enum": ["jetbrains", "webview"],
+          "enum": [
+            "jetbrains",
+            "webview"
+          ],
           "enumDescriptions": [
             "Launch the real installed JetBrains IDE merge window (exact 1:1).",
             "Use the built-in embedded merge editor (no external IDE needed)."
@@ -210,11 +212,24 @@
     "@types/node": "^20.19.42",
     "@types/vscode": "1.74.0",
     "esbuild": "^0.28.0",
-    "tsx": "^4.22.4",
-    "typescript": "^6.0.3"
-  },
-  "dependencies": {
     "monaco-editor": "^0.55.1",
+    "tsx": "^4.22.4",
+    "typescript": "^6.0.3",
     "vscode-diff": "^3.0.1"
+  },
+  "qna": "https://github.com/antonarnaudov/merge-studio/issues",
+  "pricing": "Free",
+  "extensionKind": [
+    "workspace"
+  ],
+  "capabilities": {
+    "virtualWorkspaces": {
+      "supported": false,
+      "description": "Merge Studio requires a local git repository on disk."
+    },
+    "untrustedWorkspaces": {
+      "supported": false,
+      "description": "Merge Studio runs git commands in the workspace and can launch an external IDE from a workspace-configurable path."
+    }
   }
 }
