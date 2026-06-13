@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.4 — 2026-06-13
+
+- The branch context pills (yours ⟵ theirs) moved into the header, beside the operation chip — one glanceable line.
+
 ## 0.2.3 — 2026-06-13
 
 - Hold-to-undo trimmed to 0.75s — still deliberate, no longer a wait.

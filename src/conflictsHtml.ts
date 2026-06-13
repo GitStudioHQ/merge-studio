@@ -37,7 +37,7 @@ export function renderConflictsHtml(): string {
       padding: 26px 28px 16px;
     }
 
-    header { display: flex; align-items: center; gap: 12px; }
+    header { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
     .mark { width: 30px; height: 30px; flex: none; }
     h1 { font-size: 16px; font-weight: 600; margin: 0; letter-spacing: 0.2px; }
     .chip {
@@ -61,7 +61,6 @@ export function renderConflictsHtml(): string {
       display: flex;
       align-items: center;
       gap: 8px;
-      margin: 14px 0 0 42px;
       font-size: 12px;
     }
     .branch {
@@ -308,13 +307,13 @@ export function renderConflictsHtml(): string {
       </svg>
       <h1>Merge Conflicts</h1>
       <span class="chip" id="chip"></span>
+      <div class="branches" id="branches" hidden>
+        <span class="branch"><span class="who">yours</span><span id="yours"></span></span>
+        <span class="arrow">⟵</span>
+        <span class="branch"><span class="who">theirs</span><span id="theirs"></span></span>
+      </div>
     </header>
     <div class="sub" id="sub"></div>
-    <div class="branches" id="branches" hidden>
-      <span class="branch"><span class="who">yours</span><span id="yours"></span></span>
-      <span class="arrow">⟵</span>
-      <span class="branch"><span class="who">theirs</span><span id="theirs"></span></span>
-    </div>
 
     <div class="progress-row" id="progressRow" hidden>
       <div class="bar"><div id="barFill"></div></div>
