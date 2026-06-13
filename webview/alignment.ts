@@ -7,6 +7,7 @@ import type {
   DiffModel,
   LineSpan,
   MergeModel,
+  SideChange,
 } from "../src/engine/types";
 
 export interface Spacer {
@@ -48,43 +49,65 @@ export function computeAlignmentZones(
   let rightOffset = 0;
 
   for (const block of model.blocks) {
-    const baseStart = block.baseSpan.start;
-    const baseEnd = block.baseSpan.endExclusive;
-    const baseHeight = baseEnd - baseStart;
-
     const resultSpan = resultSpanOf?.(block) ?? block.baseSpan;
     const resultStart = resultSpan.start;
     const resultHeight = resultSpan.endExclusive - resultSpan.start;
 
-    const leftStart = block.left
-      ? block.left.sideSpan.start
-      : baseStart + leftOffset;
-    const leftEnd = block.left
-      ? block.left.sideSpan.endExclusive
-      : baseEnd + leftOffset;
-    const leftHeight = leftEnd - leftStart;
+    const left = placeSide(block.left, block.baseSpan, leftOffset);
+    const right = placeSide(block.right, block.baseSpan, rightOffset);
 
-    const rightStart = block.right
-      ? block.right.sideSpan.start
-      : baseStart + rightOffset;
-    const rightEnd = block.right
-      ? block.right.sideSpan.endExclusive
-      : baseEnd + rightOffset;
-    const rightHeight = rightEnd - rightStart;
+    const aligned = Math.max(left.height, resultHeight, right.height);
 
-    const aligned = Math.max(leftHeight, resultHeight, rightHeight);
-
-    addSpacer(zones.left, leftStart, leftHeight, aligned - leftHeight);
+    addSpacer(zones.left, left.start, left.height, aligned - left.height);
     addSpacer(zones.result, resultStart, resultHeight, aligned - resultHeight);
-    addSpacer(zones.right, rightStart, rightHeight, aligned - rightHeight);
+    addSpacer(zones.right, right.start, right.height, aligned - right.height);
 
-    // Offsets for sides without a change in a block stay base-relative: the
-    // side documents never change, only the result does.
-    leftOffset += leftHeight - baseHeight;
-    rightOffset += rightHeight - baseHeight;
+    // Each side's offset tracks ITS OWN net line change (added − removed), not
+    // the union block height — a clustered block can be taller than what this
+    // side actually touched (see placeSide).
+    leftOffset += left.delta;
+    rightOffset += right.delta;
   }
 
   return zones;
+}
+
+interface SidePlacement {
+  /** First line of the block region in the side's own document coordinates. */
+  start: number;
+  /** Height of the block region in the side, INCLUDING passthrough lines. */
+  height: number;
+  /** Net lines this side added (+) or removed (−) vs base in this block. */
+  delta: number;
+}
+
+/**
+ * A block's `baseSpan` is the UNION of both sides' changes, so it can cover
+ * base lines that THIS side never touched. Those passthrough lines still exist
+ * verbatim in the side's document and count toward its block height — counting
+ * only `sideSpan` undercounts the side and leaks a spurious spacer, which (with
+ * pixel-locked scroll sync) makes the panes drift apart further down the file.
+ */
+function placeSide(
+  change: SideChange | undefined,
+  baseSpan: LineSpan,
+  offset: number,
+): SidePlacement {
+  const baseHeight = baseSpan.endExclusive - baseSpan.start;
+  if (!change) {
+    // Untouched across the whole region: maps 1:1 from base via the offset.
+    return { start: baseSpan.start + offset, height: baseHeight, delta: 0 };
+  }
+  const sideBaseHeight = change.baseSpan.endExclusive - change.baseSpan.start;
+  const sideHeight = change.sideSpan.endExclusive - change.sideSpan.start;
+  // Passthrough lines between the union start and where this side's own change
+  // begins — they sit above the change in the side's coordinates.
+  const leadIn = change.baseSpan.start - baseSpan.start;
+  return {
+    start: change.sideSpan.start - leadIn,
+    height: baseHeight - sideBaseHeight + sideHeight,
+    delta: sideHeight - sideBaseHeight,
+  };
 }
 
 /**
