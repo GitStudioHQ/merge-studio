@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.3 — 2026-06-13
+
+- Hold-to-undo trimmed to 0.75s — still deliberate, no longer a wait.
+- The "merge in progress" chip and the instruction line disappear once every conflict is resolved; the green confirmation owns that state.
+- Restricted Mode (untrusted workspaces) is now supported in limited mode: everything works, but the workspace cannot override the JetBrains IDE launcher path.
+- Publisher id is now `antonarnaudov` (extension id `antonarnaudov.merge-studio`).
+
 ## 0.2.2 — 2026-06-13
 
 - Pre-publish sweep: workspace-trust and virtual-workspace capabilities declared, `extensionKind: ["workspace"]`, Q&A routed to GitHub issues, slimmer vsix (test/CI files excluded), bundled libraries moved to devDependencies.

@@ -54,7 +54,7 @@ If a JetBrains IDE is installed — WebStorm, PyCharm, IntelliJ IDEA, PhpStorm, 
 
 ## Install
 
-- **VS Code**: search "Merge Studio" in the Extensions view, or `ext install anton-arnaudov.merge-studio`
+- **VS Code**: search "Merge Studio" in the Extensions view, or `ext install antonarnaudov.merge-studio`
 - **Cursor / VSCodium**: install from the marketplace, or download the `.vsix` from [GitHub releases](https://github.com/antonarnaudov/merge-studio/releases) and use "Install from VSIX…"
 
 **Requirements**: VS Code 1.74+ (or Cursor), git on your PATH, and the built-in Git extension enabled. Merge Studio runs where your repository lives, so it needs a trusted, local (non-virtual) workspace.

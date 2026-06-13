@@ -33,7 +33,7 @@ test("nonces differ between renders", () => {
 
 test("the undo hold duration is embedded in the document", () => {
   assert.ok(renderConflictsHtml().includes(`const HOLD_MS = ${UNDO_HOLD_MS}`));
-  assert.equal(UNDO_HOLD_MS, 1500);
+  assert.equal(UNDO_HOLD_MS, 750);
 });
 
 test("the dialog wires every message the controller handles", () => {

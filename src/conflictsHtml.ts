@@ -3,7 +3,7 @@
 // visual verification, and the controller (conflictsPanel.ts) hosts it.
 
 /** How long the Undo button must be held before it fires (the "unlock"). */
-export const UNDO_HOLD_MS = 1500;
+export const UNDO_HOLD_MS = 750;
 
 export function renderConflictsHtml(): string {
   const nonce = getNonce();
@@ -361,9 +361,11 @@ export function renderConflictsHtml(): string {
       const allDone = files.length > 0 && pending === 0;
 
       el("chip").textContent = state.operation + " in progress";
+      el("chip").hidden = allDone; // resolved: the green banner says it all
       el("sub").textContent =
         "Resolve each file below, or cancel the " + state.operation +
         " to restore the repository to the state before it started.";
+      el("sub").hidden = allDone;
 
       const hasBranches = state.yoursName || state.theirsName;
       el("branches").hidden = !hasBranches;
@@ -496,8 +498,7 @@ export function renderConflictsHtml(): string {
     function holdUndoButton(file, rowEl) {
       const btn = document.createElement("button");
       btn.className = "undo-hold";
-      btn.title = "Hold for " + Math.round(HOLD_MS / 1000) +
-        " seconds to restore this conflict";
+      btn.title = "Hold to restore this conflict";
       const fill = document.createElement("span");
       fill.className = "undo-fill";
       const label = document.createElement("span");

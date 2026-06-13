@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta http-equiv="Content-Security-Policy"
-        content="default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-tUaoORSgMM6Omqx8WsDvDyU95Dz96jK4'" />
+        content="default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-0YLqB5yQj2ls4iCGCENy9Mb7QvPoqo0Q'" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Conflicts</title>
   <style>
@@ -330,15 +330,15 @@
       <button class="primary" id="close" hidden>Close</button>
     </footer>
   </div>
-  <script nonce="tUaoORSgMM6Omqx8WsDvDyU95Dz96jK4">
+  <script nonce="0YLqB5yQj2ls4iCGCENy9Mb7QvPoqo0Q">
   globalThis.acquireVsCodeApi = () => ({
     postMessage: (m) => { (window.__sent = window.__sent || []).push(m); },
     getState: () => undefined,
     setState: () => {},
   });
-</script><script nonce="tUaoORSgMM6Omqx8WsDvDyU95Dz96jK4">
+</script><script nonce="0YLqB5yQj2ls4iCGCENy9Mb7QvPoqo0Q">
     const vscode = acquireVsCodeApi();
-    const HOLD_MS = 1500;
+    const HOLD_MS = 750;
     const el = (id) => document.getElementById(id);
     const list = el("list");
 
@@ -358,9 +358,11 @@
       const allDone = files.length > 0 && pending === 0;
 
       el("chip").textContent = state.operation + " in progress";
+      el("chip").hidden = allDone; // resolved: the green banner says it all
       el("sub").textContent =
         "Resolve each file below, or cancel the " + state.operation +
         " to restore the repository to the state before it started.";
+      el("sub").hidden = allDone;
 
       const hasBranches = state.yoursName || state.theirsName;
       el("branches").hidden = !hasBranches;
@@ -493,8 +495,7 @@
     function holdUndoButton(file, rowEl) {
       const btn = document.createElement("button");
       btn.className = "undo-hold";
-      btn.title = "Hold for " + Math.round(HOLD_MS / 1000) +
-        " seconds to restore this conflict";
+      btn.title = "Hold to restore this conflict";
       const fill = document.createElement("span");
       fill.className = "undo-fill";
       const label = document.createElement("span");
@@ -532,7 +533,7 @@
       return btn;
     }
   </script>
-<script nonce="tUaoORSgMM6Omqx8WsDvDyU95Dz96jK4">
+<script nonce="0YLqB5yQj2ls4iCGCENy9Mb7QvPoqo0Q">
   window.postMessage({"type":"state","operation":"merge","yoursName":"master","theirsName":"feature","busy":false,"total":5,"resolved":3,"files":[{"uri":"file:///r/config.json","rel":"config.json","badge":"","status":"resolved","choice":"theirs"},{"uri":"file:///r/src/api.ts","rel":"src/api.ts","badge":"deleted by them","status":"pending","choice":null},{"uri":"file:///r/src/cache.ts","rel":"src/cache.ts","badge":"","status":"busy","choice":null},{"uri":"file:///r/src/userService.js","rel":"src/userService.js","badge":"","status":"resolved","choice":"yours"},{"uri":"file:///r/src/util.ts","rel":"src/util.ts","badge":"","status":"resolved","choice":"merged"}]}, "*");
 </script></body>
 </html>
