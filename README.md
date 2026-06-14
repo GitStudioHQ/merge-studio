@@ -1,10 +1,14 @@
 # Merge Studio — JetBrains-Style Merge & Diff
 
+![Merge Studio — a JetBrains-style merge editor and diff, embedded in VS Code](media/banner.png)
+
 The **JetBrains (IntelliJ / PyCharm / WebStorm) merge-conflict experience, embedded in VS Code and Cursor**: a faithful 3-pane merge editor with curved gutter ribbons, a conflicts dialog that drives your whole merge session, undo/redo with action history, and a side-by-side diff viewer.
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![License: MIT](https://img.shields.io/badge/License-MIT-44a248.svg)](LICENSE)
+[![Sponsor](https://img.shields.io/badge/Sponsor-%E2%9D%A4-db61a2?logo=githubsponsors&logoColor=white)](https://github.com/sponsors/antonarnaudov)
+[![Buy me a coffee](https://img.shields.io/badge/Buy%20me%20a%20coffee-%E2%98%95-6b5be6)](https://checkout.revolut.com/pay/7a6070ab-99ba-4170-a125-c5911b1a5c1d)
 
-> 100% free and open source (MIT). If Merge Studio saves your merges, consider [sponsoring the project](https://github.com/sponsors/antonarnaudov) ❤️
+> 100% free and open source (MIT). If Merge Studio saves your merges, [❤️ sponsor](https://github.com/sponsors/antonarnaudov) or [☕ buy me a coffee](https://checkout.revolut.com/pay/7a6070ab-99ba-4170-a125-c5911b1a5c1d).
 
 ![The 3-way merge editor](media/screenshots/merge-editor.png)
 
@@ -44,9 +48,12 @@ Left (yours) · Result (editable) · Right (theirs), exactly like the IntelliJ m
 
 ### Side-by-side diff
 
-- Explorer: compare any two files, or a file against its git HEAD
+![Side-by-side diff](media/screenshots/diff-view.png)
+
+- **Compare** (Explorer right-click, or the `Merge Studio: Compare` command): diff any two selected files, or a single file against its git HEAD
 - Live re-diff while you edit the right pane
 - Same ribbons, colors, and navigation as the merge editor
+- Prefer the real IDE? Set `jbMerge.diffTool: "jetbrains"` to hand the diff to your installed JetBrains IDE instead
 
 ### Real JetBrains IDE integration (optional)
 
@@ -64,6 +71,7 @@ If a JetBrains IDE is installed — WebStorm, PyCharm, IntelliJ IDEA, PhpStorm, 
 | Setting | Default | Description |
 | --- | --- | --- |
 | `jbMerge.conflictResolver` | `webview` | `webview` = embedded editor, `jetbrains` = launch the real installed IDE |
+| `jbMerge.diffTool` | `embedded` | Tool for the **Compare** command: `embedded` editor, or `jetbrains` to open the real IDE (falls back to embedded if none is found) |
 | `jbMerge.autoOpen` | `true` | Automatically open conflicted files with the selected resolver |
 | `jbMerge.preferredIde` | `auto` | Which JetBrains IDE to launch (`auto` picks the first found) |
 | `jbMerge.jetbrainsPath` | `""` | Explicit path to a JetBrains IDE launcher |
@@ -90,9 +98,14 @@ npx @vscode/vsce package   # build the .vsix
 | `src/engine/` | Diff/merge model (pure, unit-tested) |
 | `webview/` | Front-end: Monaco panes, ribbons, decorations, undo history |
 
-## Sponsor
+## Support the project
 
-Merge Studio is free, MIT-licensed, and built nights-and-weekends. If it makes your merges painless, [a sponsorship or tip](https://github.com/sponsors/antonarnaudov) keeps it maintained and motivates new features.
+Merge Studio is free, MIT-licensed, and built nights & weekends. If it makes your merges painless, a little support keeps it maintained and funds new features:
+
+- ❤️ **[Sponsor on GitHub](https://github.com/sponsors/antonarnaudov)** — recurring support
+- ☕ **[Buy me a coffee](https://checkout.revolut.com/pay/7a6070ab-99ba-4170-a125-c5911b1a5c1d)** — a one-off tip via Revolut
+
+Thank you — it genuinely helps. 🙏
 
 ## License
 

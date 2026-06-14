@@ -56,7 +56,8 @@ type PanelMessage =
   | { type: "merge"; uri: string }
   | { type: "undo"; uri: string }
   | { type: "abort" }
-  | { type: "close" };
+  | { type: "close" }
+  | { type: "openExternal"; url: string };
 
 export class ConflictsPanel {
   private static current: ConflictsPanel | undefined;
@@ -277,6 +278,9 @@ export class ConflictsPanel {
         break;
       case "close":
         this.panel.dispose();
+        break;
+      case "openExternal":
+        void vscode.env.openExternal(vscode.Uri.parse(message.url));
         break;
       default:
         break;

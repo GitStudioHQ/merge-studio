@@ -2,7 +2,7 @@
   "name": "merge-studio",
   "displayName": "Merge Studio — JetBrains-Style Merge & Diff",
   "description": "Resolve merge conflicts like in JetBrains IDEs (IntelliJ, PyCharm, WebStorm): a 3-way merge editor with ribbons, undo history and a conflicts dialog, plus side-by-side diff — for VS Code and Cursor.",
-  "version": "0.2.4",
+  "version": "0.3.0",
   "publisher": "antonarnaudov",
   "license": "MIT",
   "icon": "media/icon.png",
@@ -65,6 +65,19 @@
           "default": "webview",
           "description": "Which resolver to use for conflicts. 'webview' uses the embedded editor; 'jetbrains' opens the real installed IDE."
         },
+        "jbMerge.diffTool": {
+          "type": "string",
+          "enum": [
+            "embedded",
+            "jetbrains"
+          ],
+          "enumDescriptions": [
+            "Use the built-in embedded diff editor (no external IDE needed).",
+            "Open the diff in the real installed JetBrains IDE."
+          ],
+          "default": "embedded",
+          "description": "Which tool the 'Merge Studio: Compare' command uses. 'jetbrains' opens the real IDE, falling back to the embedded diff if none is installed."
+        },
         "jbMerge.preferredIde": {
           "type": "string",
           "enum": [
@@ -94,6 +107,75 @@
         }
       }
     },
+    "walkthroughs": [
+      {
+        "id": "mergeStudio.gettingStarted",
+        "title": "Get Started with Merge Studio",
+        "description": "Resolve conflicts and compare files in a JetBrains-style three-pane editor, embedded in VS Code.",
+        "steps": [
+          {
+            "id": "mergeStudio.welcome",
+            "title": "Meet Merge Studio",
+            "description": "**A JetBrains-style three-pane merge editor, embedded in VS Code.** Left is yours, center is the result you commit, right is theirs — wired with color ribbons and accept arrows. Includes a precise side-by-side diff. No external app required.",
+            "media": {
+              "image": "media/banner.png",
+              "altText": "Merge Studio — the embedded three-pane merge editor with connecting color ribbons."
+            },
+            "completionEvents": [
+              "onStepSelected"
+            ]
+          },
+          {
+            "id": "mergeStudio.tryMerge",
+            "title": "Try the three-pane merge",
+            "description": "**Open a ready-made sample conflict and resolve it — no setup.** Click the accept arrows in the gutter ribbons to pull a side into the center result. Edit the result freely; alignment re-flows live as you type.\n\n[Open sample merge](command:jbMerge.openDemo)",
+            "media": {
+              "image": "media/screenshots/merge-editor.png",
+              "altText": "Three-pane merge editor — yours, result, theirs — joined by accept arrows and color ribbons."
+            },
+            "completionEvents": [
+              "onCommand:jbMerge.openDemo"
+            ]
+          },
+          {
+            "id": "mergeStudio.tryDiff",
+            "title": "Try the side-by-side diff",
+            "description": "**Open a sample change in the side-by-side diff.** Panes align line for line, with intra-line highlights on exactly what moved — the same precise diff you'd get from a JetBrains IDE.\n\n[Open sample diff](command:jbMerge.openDemoDiff)",
+            "media": {
+              "image": "media/screenshots/diff-view.png",
+              "altText": "Side-by-side diff with line-aligned panes and intra-line change highlights."
+            },
+            "completionEvents": [
+              "onCommand:jbMerge.openDemoDiff"
+            ]
+          },
+          {
+            "id": "mergeStudio.realConflicts",
+            "title": "Resolve your own conflicts",
+            "description": "**Point Merge Studio at your repo.** Conflicted files open in the three-pane editor automatically after a merge or rebase, and the conflicts list shows every affected file so you can work through them one by one.\n\n[Show my conflicts](command:jbMerge.showConflicts)",
+            "media": {
+              "image": "media/screenshots/conflicts-dialog.png",
+              "altText": "Conflicts list showing every conflicted file left by a merge or rebase."
+            },
+            "completionEvents": [
+              "onCommand:jbMerge.showConflicts"
+            ]
+          },
+          {
+            "id": "mergeStudio.handoff",
+            "title": "Optional: hand off to JetBrains",
+            "description": "Have IntelliJ, WebStorm, or PyCharm installed? You can hand any merge or diff off to the real IDE for a 1:1 native experience. Entirely optional — everything above works without it.",
+            "media": {
+              "image": "media/screenshots/merge-editor.png",
+              "altText": "The three-pane merge editor — Merge Studio can hand any merge off to an installed JetBrains IDE."
+            },
+            "completionEvents": [
+              "onStepSelected"
+            ]
+          }
+        ]
+      }
+    ],
     "customEditors": [
       {
         "viewType": "jbMerge.mergeEditor",
@@ -128,6 +210,10 @@
         "category": "Merge Studio"
       },
       {
+        "command": "jbMerge.compare",
+        "title": "Merge Studio: Compare"
+      },
+      {
         "command": "jbMerge.openDiff",
         "title": "Open in Embedded Diff",
         "category": "Merge Studio"
@@ -135,6 +221,21 @@
       {
         "command": "jbMerge.openChanges",
         "title": "Open Changes (Embedded Diff)",
+        "category": "Merge Studio"
+      },
+      {
+        "command": "jbMerge.openWalkthrough",
+        "title": "Open Getting Started",
+        "category": "Merge Studio"
+      },
+      {
+        "command": "jbMerge.openDemo",
+        "title": "Open Sample Merge",
+        "category": "Merge Studio"
+      },
+      {
+        "command": "jbMerge.openDemoDiff",
+        "title": "Open Sample Diff",
         "category": "Merge Studio"
       }
     ],
@@ -177,16 +278,24 @@
       ],
       "explorer/context": [
         {
-          "command": "jbMerge.openDiff",
+          "command": "jbMerge.compare",
+          "when": "!explorerResourceIsFolder",
           "group": "3_compare@1"
-        },
-        {
-          "command": "jbMerge.diffWithJetBrains",
-          "when": "jbMerge.ideAvailable",
-          "group": "3_compare@2"
         }
       ],
       "commandPalette": [
+        {
+          "command": "jbMerge.openWalkthrough"
+        },
+        {
+          "command": "jbMerge.openDemo"
+        },
+        {
+          "command": "jbMerge.openDemoDiff"
+        },
+        {
+          "command": "jbMerge.compare"
+        },
         {
           "command": "jbMerge.diffWithJetBrains"
         },

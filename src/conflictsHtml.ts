@@ -27,6 +27,12 @@ export function renderConflictsHtml(): string {
       justify-content: center;
       --jb-accent: var(--vscode-gitDecoration-conflictingResourceForeground, #d9604c);
       --jb-ok: var(--vscode-testing-iconPassed, var(--vscode-charts-green, #56a05e));
+      --jb-brand: #6b5be6;
+      --jb-brand-hover: #7c6cf0;
+      /* radius scale: controls (buttons), pills (tags/status), cards (panels) */
+      --r-control: 6px;
+      --r-pill: 999px;
+      --r-card: 8px;
     }
     .dialog {
       width: min(760px, 100%);
@@ -46,7 +52,7 @@ export function renderConflictsHtml(): string {
       text-transform: uppercase;
       letter-spacing: 0.8px;
       padding: 2px 8px;
-      border-radius: 9px;
+      border-radius: var(--r-pill);
       color: var(--jb-accent);
       border: 1px solid var(--jb-accent);
       opacity: 0.9;
@@ -68,7 +74,7 @@ export function renderConflictsHtml(): string {
       align-items: center;
       gap: 6px;
       padding: 2px 10px;
-      border-radius: 10px;
+      border-radius: var(--r-pill);
       background: var(--vscode-badge-background);
       color: var(--vscode-badge-foreground);
       font-family: var(--vscode-editor-font-family, monospace);
@@ -86,14 +92,14 @@ export function renderConflictsHtml(): string {
     .bar {
       flex: 1;
       height: 5px;
-      border-radius: 3px;
+      border-radius: var(--r-pill);
       background: var(--vscode-widget-border, var(--vscode-panel-border));
       overflow: hidden;
     }
     .bar > div {
       height: 100%;
       width: 0;
-      border-radius: 3px;
+      border-radius: var(--r-pill);
       background: var(--jb-ok);
       transition: width 0.25s ease;
     }
@@ -110,7 +116,7 @@ export function renderConflictsHtml(): string {
       gap: 6px;
       margin-bottom: 14px;
       padding: 16px 12px 14px;
-      border-radius: 6px;
+      border-radius: var(--r-card);
       border: 1px solid var(--jb-ok);
       color: var(--jb-ok);
       background: rgba(86, 160, 94, 0.07);
@@ -118,6 +124,49 @@ export function renderConflictsHtml(): string {
     }
     .done h2 { margin: 4px 0 0; font-size: 14px; font-weight: 600; }
     .done .note { color: var(--vscode-descriptionForeground); font-size: 12px; }
+    .support-actions { display: flex; align-items: center; gap: 8px; }
+    /* Tertiary "support" variant: subtle glass at rest, a gentle lift + a
+     * one-off shine on hover only (never ambient — no attention-grabbing). */
+    .support-actions button {
+      position: relative;
+      overflow: hidden;
+      isolation: isolate;
+      font-size: 11px;
+      font-weight: 600;
+      padding: 3px 11px;
+      border: none;
+      border-radius: var(--r-control);
+      color: var(--vscode-foreground);
+      background: linear-gradient(180deg, rgba(124, 108, 240, 0.15), rgba(107, 91, 230, 0.07));
+      box-shadow:
+        0 0 0 1px rgba(124, 108, 240, 0.22) inset,
+        0 1px 8px rgba(107, 91, 230, 0.12);
+    }
+    .support-actions button:hover:not(:disabled) {
+      transform: translateY(-1px);
+      color: #fff;
+      background: linear-gradient(180deg, rgba(142, 130, 242, 0.42), rgba(107, 91, 230, 0.24));
+      box-shadow:
+        0 1px 0 rgba(255, 255, 255, 0.18) inset,
+        0 0 0 1px rgba(142, 130, 242, 0.50) inset,
+        0 4px 16px rgba(107, 91, 230, 0.40);
+    }
+    .support-actions button::after {
+      content: "";
+      position: absolute;
+      top: 0;
+      left: -130%;
+      width: 55%;
+      height: 100%;
+      background: linear-gradient(100deg, transparent, rgba(255, 255, 255, 0.40), transparent);
+      transform: skewX(-20deg);
+      z-index: -1;
+    }
+    .support-actions button:hover:not(:disabled)::after { animation: shine 0.8s ease; }
+    @keyframes shine { from { left: -130%; } to { left: 140%; } }
+    @media (prefers-reduced-motion: reduce) {
+      .support-actions button:hover::after { animation: none; }
+    }
     /* Success animation: the ring sweeps in like a loader, then the check draws. */
     .done-ring circle {
       fill: none;
@@ -147,7 +196,7 @@ export function renderConflictsHtml(): string {
       min-height: 0;
       overflow-y: auto;
       border: 1px solid var(--vscode-widget-border, var(--vscode-panel-border));
-      border-radius: 6px;
+      border-radius: var(--r-card);
       background: var(--vscode-editorWidget-background, transparent);
     }
     .row {
@@ -192,8 +241,8 @@ export function renderConflictsHtml(): string {
       font-size: 10px;
       color: var(--jb-accent);
       border: 1px solid var(--jb-accent);
-      border-radius: 8px;
-      padding: 1px 7px;
+      border-radius: var(--r-pill);
+      padding: 1px 8px;
       white-space: nowrap;
       opacity: 0.9;
     }
@@ -201,8 +250,8 @@ export function renderConflictsHtml(): string {
       font-size: 10px;
       color: var(--jb-ok);
       border: 1px solid var(--jb-ok);
-      border-radius: 8px;
-      padding: 1px 7px;
+      border-radius: var(--r-pill);
+      padding: 1px 8px;
       white-space: nowrap;
       opacity: 0.9;
     }
@@ -210,22 +259,26 @@ export function renderConflictsHtml(): string {
     button {
       font-family: inherit;
       font-size: 12px;
+      font-weight: 500;
       padding: 4px 12px;
-      border-radius: 3px;
+      border-radius: var(--r-control);
       cursor: pointer;
       border: 1px solid var(--vscode-button-border, transparent);
       background: var(--vscode-button-secondaryBackground);
       color: var(--vscode-button-secondaryForeground);
       white-space: nowrap;
+      transition: background 0.15s ease, border-color 0.15s ease, transform 0.1s ease;
     }
+    button:active:not(:disabled) { transform: translateY(0.5px); }
     button:hover:not(:disabled) { background: var(--vscode-button-secondaryHoverBackground); }
     button:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: 1px; }
     button:disabled { opacity: 0.45; cursor: default; }
     .primary {
-      background: var(--vscode-button-background);
-      color: var(--vscode-button-foreground);
+      background: var(--jb-brand);
+      color: #fff;
+      border-color: transparent;
     }
-    .primary:hover:not(:disabled) { background: var(--vscode-button-hoverBackground); }
+    .primary:hover:not(:disabled) { background: var(--jb-brand-hover); }
     .danger {
       background: transparent;
       border-color: var(--vscode-errorForeground);
@@ -285,6 +338,8 @@ export function renderConflictsHtml(): string {
       align-items: center;
       gap: 8px;
       padding-top: 14px;
+      flex-wrap: wrap;
+      row-gap: 8px;
     }
     .spacer { flex: 1; }
     .counter { color: var(--vscode-descriptionForeground); font-size: 12px; }
@@ -294,17 +349,48 @@ export function renderConflictsHtml(): string {
   <div class="dialog">
     <header>
       <svg class="mark" viewBox="0 0 256 256" aria-hidden="true">
-        <rect width="256" height="256" rx="56" fill="#1E222A"/>
-        <rect x="36" y="44" width="76" height="168" rx="10" fill="#2A303C"/>
-        <rect x="144" y="44" width="76" height="168" rx="10" fill="#2A303C"/>
-        <rect x="36" y="76" width="76" height="24" fill="#D95F49"/>
-        <rect x="144" y="76" width="76" height="24" fill="#D95F49"/>
-        <rect x="112" y="76" width="32" height="24" fill="#D95F49" opacity="0.55"/>
-        <rect x="36" y="130" width="76" height="24" fill="#4E9456"/>
-        <path d="M112 130 L144 140 L144 144 L112 154 Z" fill="#4E9456" opacity="0.55"/>
-        <rect x="144" y="184" width="76" height="24" fill="#4173AE"/>
-        <path d="M144 184 L112 194 L112 198 L144 208 Z" fill="#4173AE" opacity="0.55"/>
-      </svg>
+  <defs>
+    <linearGradient id="ms_bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#2C3343"/><stop offset="1" stop-color="#181C24"/></linearGradient>
+    <linearGradient id="ms_res" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#9486F6"/><stop offset="1" stop-color="#6B5BE6"/></linearGradient>
+    <linearGradient id="ms_cs" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FFFFFF" stop-opacity="0.10"/><stop offset="0.45" stop-color="#FFFFFF" stop-opacity="0"/></linearGradient>
+    <linearGradient id="ms_ts" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FFFFFF" stop-opacity="0.06"/><stop offset="0.4" stop-color="#FFFFFF" stop-opacity="0"/></linearGradient>
+    <radialGradient id="ms_gl" cx="0.5" cy="0.5" r="0.5"><stop offset="0" stop-color="#8E82F2" stop-opacity="0.55"/><stop offset="1" stop-color="#6B5BE6" stop-opacity="0"/></radialGradient>
+    <radialGradient id="ms_sh" cx="0.5" cy="0.5" r="0.5"><stop offset="0" stop-color="#0C0E13" stop-opacity="0.55"/><stop offset="1" stop-color="#0C0E13" stop-opacity="0"/></radialGradient>
+  </defs>
+  <rect width="256" height="256" rx="52" fill="url(#ms_bg)"/>
+  <rect x="1" y="1" width="254" height="254" rx="51" fill="url(#ms_ts)"/>
+  <ellipse cx="128" cy="214" rx="46" ry="14" fill="url(#ms_sh)"/>
+  <ellipse cx="128" cy="128" rx="58" ry="92" fill="url(#ms_gl)"/>
+
+  <!-- CENTER result column -->
+  <rect x="100" y="46" width="56" height="166" rx="11" fill="url(#ms_res)" stroke="#AEA6F8" stroke-width="1.5"/>
+  <rect x="101.5" y="47.5" width="53" height="60" rx="9" fill="url(#ms_cs)"/>
+  <rect x="110" y="72" width="36" height="6" rx="3" fill="#FFFFFF" opacity="0.9"/>
+  <rect x="110" y="170" width="28" height="6" rx="3" fill="#FFFFFF" opacity="0.6"/>
+  <rect x="108" y="116" width="40" height="22" rx="5" fill="#FFFFFF" opacity="0.96"/>
+
+  <!-- ACCEPT arrows: from each editor edge, stepping onto the result -->
+  <path d="M84 116 L102 127 L84 138" fill="none" stroke="#F4F6FA" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M172 116 L154 127 L172 138" fill="none" stroke="#F4F6FA" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+
+  <!-- LEFT editor (yours) — on top of the arrow's tail -->
+  <g>
+    <rect x="32" y="56" width="52" height="146" rx="9" fill="#454F62" stroke="#5A6679" stroke-width="1.5"/>
+    <rect x="33.5" y="57.5" width="49" height="60" rx="8" fill="url(#ms_cs)"/>
+    <rect x="42" y="80" width="30" height="6" rx="3" fill="#AEB6C2" opacity="0.7"/>
+    <rect x="42" y="170" width="24" height="6" rx="3" fill="#AEB6C2" opacity="0.7"/>
+    <rect x="40" y="116" width="36" height="22" rx="5" fill="#E06A52"/>
+  </g>
+  <!-- RIGHT editor (theirs) -->
+  <g>
+    <rect x="172" y="56" width="52" height="146" rx="9" fill="#454F62" stroke="#5A6679" stroke-width="1.5"/>
+    <rect x="173.5" y="57.5" width="49" height="60" rx="8" fill="url(#ms_cs)"/>
+    <rect x="184" y="80" width="30" height="6" rx="3" fill="#AEB6C2" opacity="0.7"/>
+    <rect x="184" y="170" width="24" height="6" rx="3" fill="#AEB6C2" opacity="0.7"/>
+    <rect x="180" y="116" width="36" height="22" rx="5" fill="#E06A52"/>
+  </g>
+  <rect x="2.25" y="2.25" width="251.5" height="251.5" rx="50.5" fill="none" stroke="#FFFFFF" stroke-opacity="0.07" stroke-width="1.5"/>
+</svg>
       <h1>Merge Conflicts</h1>
       <span class="chip" id="chip"></span>
       <div class="branches" id="branches" hidden>
@@ -334,6 +420,12 @@ export function renderConflictsHtml(): string {
     <footer>
       <button class="danger" id="abort"></button>
       <span class="spacer"></span>
+      <div class="support-actions">
+        <button id="reportBug" title="Open an issue on GitHub">🐛 Report a bug</button>
+        <button id="sponsor" title="Sponsor on GitHub">❤️ Sponsor</button>
+        <button id="coffee" title="Buy me a coffee (Revolut)">☕ Buy me a coffee</button>
+      </div>
+      <span class="spacer"></span>
       <span class="counter" id="counter"></span>
       <button class="primary" id="close" hidden>Close</button>
     </footer>
@@ -346,6 +438,11 @@ export function renderConflictsHtml(): string {
 
     el("abort").addEventListener("click", () => vscode.postMessage({ type: "abort" }));
     el("close").addEventListener("click", () => vscode.postMessage({ type: "close" }));
+
+    const openExternal = (url) => vscode.postMessage({ type: "openExternal", url });
+    el("reportBug").addEventListener("click", () => openExternal("https://github.com/antonarnaudov/merge-studio/issues"));
+    el("sponsor").addEventListener("click", () => openExternal("https://github.com/sponsors/antonarnaudov"));
+    el("coffee").addEventListener("click", () => openExternal("https://checkout.revolut.com/pay/7a6070ab-99ba-4170-a125-c5911b1a5c1d"));
 
     window.addEventListener("message", (event) => {
       const state = event.data;

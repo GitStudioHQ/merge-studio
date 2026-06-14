@@ -19,8 +19,11 @@ import {
   findConfiguredLauncher,
   mergeWithJetBrains,
 } from "./jetbrains/launcher";
+import { DEMO_DIFF, DEMO_MERGE } from "./demoContent";
 
 const COEXIST_PROMPT_KEY = "jbMerge.coexistPromptShown";
+const WALKTHROUGH_SHOWN_KEY = "jbMerge.walkthroughShown";
+const WALKTHROUGH_ID = "antonarnaudov.merge-studio#mergeStudio.gettingStarted";
 
 export function activate(context: vscode.ExtensionContext): void {
   context.subscriptions.push(MergeEditorProvider.register(context));
@@ -29,6 +32,8 @@ export function activate(context: vscode.ExtensionContext): void {
   registerAutoOpen(context);
   registerMergeTabReroute(context);
   registerConflictsDialog(context);
+  registerWalkthrough(context);
+  registerDemos(context);
   void maybeOfferCoexistence(context);
 
   context.subscriptions.push(
@@ -119,23 +124,25 @@ export function activate(context: vscode.ExtensionContext): void {
   context.subscriptions.push(
     vscode.commands.registerCommand(
       "jbMerge.diffWithJetBrains",
-      async (clicked?: unknown, selected?: unknown) => {
-        const selectedUris = collectUris(selected);
-        if (selectedUris.length === 2) {
-          await diffFilesWithJetBrains(selectedUris[0], selectedUris[1]);
-          return;
+      (clicked?: unknown, selected?: unknown) =>
+        diffWithJetBrains(clicked, selected),
+    ),
+  );
+
+  // Routed "Compare" entry: one menu item that honors the jbMerge.diffTool
+  // setting — the embedded diff by default, the real JetBrains IDE when chosen
+  // (and installed; otherwise it quietly uses the embedded diff).
+  context.subscriptions.push(
+    vscode.commands.registerCommand(
+      "jbMerge.compare",
+      (clicked?: unknown, selected?: unknown) => {
+        const tool = vscode.workspace
+          .getConfiguration("jbMerge")
+          .get<string>("diffTool", "embedded");
+        if (tool === "jetbrains" && findConfiguredLauncher()) {
+          return diffWithJetBrains(clicked, selected);
         }
-        const uri =
-          resolveUriArg(clicked) ??
-          selectedUris[0] ??
-          vscode.window.activeTextEditor?.document.uri;
-        if (!uri) {
-          void vscode.window.showWarningMessage(
-            "Merge Studio: open a file or select two files to compare.",
-          );
-          return;
-        }
-        await diffAgainstHeadWithJetBrains(uri);
+        return openDiff(context, clicked, selected);
       },
     ),
   );
@@ -179,6 +186,32 @@ async function openDiff(
   await DiffPanel.create(context, headState(uri, head.ref));
 }
 
+/**
+ * JetBrains-IDE diff with the same target resolution as {@link openDiff}: two
+ * selected files diff against each other; otherwise the file vs its git HEAD.
+ */
+async function diffWithJetBrains(
+  clicked?: unknown,
+  selected?: unknown,
+): Promise<void> {
+  const selectedUris = collectUris(selected);
+  if (selectedUris.length === 2) {
+    await diffFilesWithJetBrains(selectedUris[0], selectedUris[1]);
+    return;
+  }
+  const uri =
+    resolveUriArg(clicked) ??
+    selectedUris[0] ??
+    vscode.window.activeTextEditor?.document.uri;
+  if (!uri) {
+    void vscode.window.showWarningMessage(
+      "Merge Studio: open a file or select two files to compare.",
+    );
+    return;
+  }
+  await diffAgainstHeadWithJetBrains(uri);
+}
+
 /** Working tree (current file, editable) vs HEAD (read-only). */
 function headState(uri: vscode.Uri, ref: string): DiffPanelState {
   return {
@@ -209,6 +242,73 @@ function twoFileState(left: vscode.Uri, right: vscode.Uri): DiffPanelState {
  * First-run prompt offering to disable the built-in merge UI so it doesn't
  * compete. Only ever shown once, and only applies settings on explicit consent.
  */
+/**
+ * Wires the "Getting Started" walkthrough: a command to (re)open it on demand,
+ * and a one-time auto-open on first activation after install. VS Code features
+ * contributed walkthroughs on the Welcome page automatically, but that only
+ * surfaces when the welcome page is the startup editor — opening it once here
+ * guarantees first-run onboarding regardless of that setting.
+ */
+function registerWalkthrough(context: vscode.ExtensionContext): void {
+  context.subscriptions.push(
+    vscode.commands.registerCommand("jbMerge.openWalkthrough", () =>
+      vscode.commands.executeCommand(
+        "workbench.action.openWalkthrough",
+        WALKTHROUGH_ID,
+        false,
+      ),
+    ),
+  );
+
+  if (context.globalState.get<boolean>(WALKTHROUGH_SHOWN_KEY)) {
+    return;
+  }
+  void context.globalState.update(WALKTHROUGH_SHOWN_KEY, true);
+  void vscode.commands.executeCommand(
+    "workbench.action.openWalkthrough",
+    WALKTHROUGH_ID,
+    false,
+  );
+}
+
+/**
+ * The walkthrough's "try it" actions. Both work on a fresh install with NO git
+ * setup: the merge demo writes a sample carrying diff3 conflict markers (the
+ * merge editor reconstructs base/ours/theirs from them), and the diff demo
+ * feeds two inline texts straight into the diff panel.
+ */
+function registerDemos(context: vscode.ExtensionContext): void {
+  context.subscriptions.push(
+    vscode.commands.registerCommand("jbMerge.openDemo", async () => {
+      const dir = vscode.Uri.joinPath(context.globalStorageUri, "demo");
+      await vscode.workspace.fs.createDirectory(dir);
+      const uri = vscode.Uri.joinPath(dir, DEMO_MERGE.fileName);
+      // Rewrite the pristine sample every time so it always opens unresolved,
+      // even after a previous run resolved it.
+      await vscode.workspace.fs.writeFile(
+        uri,
+        Buffer.from(DEMO_MERGE.body, "utf8"),
+      );
+      await vscode.commands.executeCommand(
+        "vscode.openWith",
+        uri,
+        MergeEditorProvider.viewType,
+      );
+    }),
+    vscode.commands.registerCommand("jbMerge.openDemoDiff", async () => {
+      await DiffPanel.create(context, {
+        fileName: DEMO_DIFF.fileName,
+        leftLabel: DEMO_DIFF.leftLabel,
+        rightLabel: DEMO_DIFF.rightLabel,
+        rightEditable: false,
+        leftSource: "text",
+        leftText: DEMO_DIFF.leftText,
+        rightText: DEMO_DIFF.rightText,
+      });
+    }),
+  );
+}
+
 async function maybeOfferCoexistence(
   context: vscode.ExtensionContext,
 ): Promise<void> {

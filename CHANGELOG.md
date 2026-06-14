@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.3.0 — 2026-06-13
+
+- New brand identity: a three-column "conflict resolver" logo, an indigo (#6B5BE6) accent, and a cover banner — applied across the marketplace icon, the Conflicts page header, and the README.
+- First-run **Get Started** walkthrough with working, zero-setup demos: open a sample 3-way merge or a sample side-by-side diff straight from the checklist (`Merge Studio: Open Sample Merge` / `Open Sample Diff`).
+- The Conflicts page picked up the new mark, an indigo primary action, and a subtle support line shown only once every conflict is resolved.
+- Refreshed screenshots (merge editor, side-by-side diff, Conflicts page) rendered from the real UI.
+- Support the project: ❤️ GitHub Sponsors or ☕ a one-off tip via Revolut.
+
 ## 0.2.4 — 2026-06-13
 
 - The branch context pills (yours ⟵ theirs) moved into the header, beside the operation chip — one glanceable line.

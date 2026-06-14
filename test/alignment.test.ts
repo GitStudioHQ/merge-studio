@@ -79,6 +79,46 @@ test("re-balances spacers when an accepted deletion empties the result span", ()
   assert.deepEqual(zones.right, []);
 });
 
+test("clustered block counts each side's untouched passthrough lines", () => {
+  // Left modifies b,c -> X,Y (keeps d); right deletes c,d (keeps b). The two
+  // changes overlap into ONE conflict block whose union baseSpan covers b,c,d.
+  // Inside that union, "d" is passthrough for left and "b" is passthrough for
+  // right — both must count toward their pane's height. Counting only sideSpan
+  // (the old bug) over-spaced the left pane and drifted every pane below it.
+  const model = buildMergeModel(
+    lines(["a", "b", "c", "d", "e"]),
+    lines(["a", "X", "Y", "d", "e"]),
+    lines(["a", "b", "e"]),
+  );
+  const zones = computeAlignmentZones(model);
+  // ours = [X,Y,d] = 3 lines, result = [b,c,d] = 3, theirs = [b] = 1 → pad +2.
+  assert.deepEqual(zones.left, []);
+  assert.deepEqual(zones.result, []);
+  assert.deepEqual(zones.right, [{ afterLineNumber: 2, lines: 2 }]);
+});
+
+test("no cumulative drift across many mixed clustered blocks", () => {
+  // Repeats a 4-line unit where ours and theirs touch DIFFERENT base lines that
+  // cluster together. Total visual height must stay equal across all three
+  // panes — otherwise pixel-locked scroll sync makes them drift further apart
+  // the deeper you scroll (the reported load-test failure).
+  const base: string[] = [];
+  const ours: string[] = [];
+  const theirs: string[] = [];
+  for (let i = 0; i < 50; i++) {
+    base.push(`k${i}a`, `k${i}b`, `k${i}c`, `k${i}d`);
+    ours.push(`k${i}A`, `k${i}B`, `k${i}c`, `k${i}d`); // modifies a,b
+    theirs.push(`k${i}a`, `k${i}b`); // deletes c,d
+  }
+  const model = buildMergeModel(lines(base), lines(ours), lines(theirs));
+  const zones = computeAlignmentZones(model);
+  const sum = (s: { lines: number }[]): number =>
+    s.reduce((t, z) => t + z.lines, 0);
+  const heightRes = base.length + sum(zones.result);
+  assert.equal(ours.length + sum(zones.left), heightRes);
+  assert.equal(theirs.length + sum(zones.right), heightRes);
+});
+
 test("diff: a right-side insertion pads the left pane at the gap", () => {
   const model = buildDiffModel(lines(["a", "b"]), lines(["a", "NEW", "b"]));
   const zones = computeDiffAlignment(model);
