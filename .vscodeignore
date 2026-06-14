@@ -15,6 +15,7 @@ tsconfig.json
 **/.DS_Store
 test-harness/**
 .github/**
-media/icon.svg
-media/screenshots/**
+media/*.svg
+media/kept-for-reference/**
+brand-assets/**
 test/**
