@@ -1,114 +1,131 @@
-# Merge Studio — JetBrains-Style Merge & Diff
+<h1 align="center">Merge Studio</h1>
 
-![Merge Studio — a JetBrains-style merge editor and diff, embedded in VS Code](media/banner.png)
+<p align="center">
+  <b>The JetBrains-style three-pane merge &amp; diff experience, embedded in VS Code and Cursor.</b>
+</p>
 
-The **JetBrains (IntelliJ / PyCharm / WebStorm) merge-conflict experience, embedded in VS Code and Cursor**: a faithful 3-pane merge editor with curved gutter ribbons, a conflicts dialog that drives your whole merge session, undo/redo with action history, and a side-by-side diff viewer.
+<p align="center">
+  <a href="https://marketplace.visualstudio.com/items?itemName=gitstudio.merge-studio"><img src="https://img.shields.io/visual-studio-marketplace/v/gitstudio.merge-studio?label=VS%20Marketplace&logo=visualstudiocode&logoColor=white&color=6B5BE6" alt="VS Marketplace version"></a>
+  <a href="https://marketplace.visualstudio.com/items?itemName=gitstudio.merge-studio"><img src="https://img.shields.io/visual-studio-marketplace/i/gitstudio.merge-studio?label=installs&color=6B5BE6" alt="VS Marketplace installs"></a>
+  <a href="https://open-vsx.org/extension/gitstudio/merge-studio"><img src="https://img.shields.io/open-vsx/v/gitstudio/merge-studio?label=Open%20VSX&logo=eclipseide&logoColor=white&color=C160EF" alt="Open VSX version"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-44a248.svg" alt="License: MIT"></a>
+  <a href="https://github.com/sponsors/antonarnaudov"><img src="https://img.shields.io/badge/Sponsor-%E2%9D%A4-db61a2?logo=githubsponsors&logoColor=white" alt="Sponsor"></a>
+</p>
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-44a248.svg)](LICENSE)
-[![Sponsor](https://img.shields.io/badge/Sponsor-%E2%9D%A4-db61a2?logo=githubsponsors&logoColor=white)](https://github.com/sponsors/antonarnaudov)
-[![Buy me a coffee](https://img.shields.io/badge/Buy%20me%20a%20coffee-%E2%98%95-6b5be6)](https://checkout.revolut.com/pay/7a6070ab-99ba-4170-a125-c5911b1a5c1d)
+<p align="center">
+  <img src="media/banner.png" alt="Merge Studio — a JetBrains-style merge editor and diff, embedded in VS Code">
+</p>
 
-> 100% free and open source (MIT). If Merge Studio saves your merges, [❤️ sponsor](https://github.com/sponsors/antonarnaudov) or [☕ buy me a coffee](https://checkout.revolut.com/pay/7a6070ab-99ba-4170-a125-c5911b1a5c1d).
+Merge Studio brings the **IntelliJ / WebStorm / PyCharm merge-conflict workflow** to VS Code and Cursor: a faithful three-pane merge editor with curved gutter ribbons, a conflicts dashboard that drives the whole session, full undo history, and a precise side-by-side diff. Nothing external required — and if you already run a JetBrains IDE, Merge Studio can hand the merge straight to it.
 
-![The 3-way merge editor](media/screenshots/merge-editor.png)
+---
 
-## Why
+## Three-pane merge editor
 
-VS Code's built-in 3-way merge editor cannot be themed or replaced through any public API, and nothing on the marketplace reproduces the JetBrains merge workflow. Merge Studio self-renders that experience inside the editor using Monaco — and if you have a real JetBrains IDE installed, it can hand the merge to it instead.
+<p align="center"><img src="media/screenshots/merge-editor.png" alt="The three-pane merge editor — yours, result, theirs"></p>
 
-## Features
+Left is **yours**, the center is the **result** you commit, right is **theirs** — joined by color ribbons and accept arrows, just like the JetBrains merge dialog. Edit the result freely; alignment re-flows live as you type.
 
-### Conflicts dialog
+- Per-side resolution — apply (≫ / ≪), append (Ctrl-click), or ignore (✕) each change independently
+- Apply all non-conflicting changes (left / right / all), plus a magic-wand for identical edits
+- **Undo / redo with a named action history** — ⌘Z / ⇧⌘Z, toolbar buttons, and a history dropdown
+- Curved ribbons connect changes across panes, with crisp frames around true conflicts
+- Two-intensity highlighting that keeps syntax colors readable
+- Change navigation (F7 / ⇧F7), synchronized scrolling, whitespace modes, large-file fallback
 
-The moment a merge, rebase, cherry-pick, or revert produces conflicts, the **Conflicts** page opens — instantly, via direct `.git` operation-state watchers rather than the slower git extension poll:
+## Conflicts dashboard
 
-![The Conflicts dialog](media/screenshots/conflicts-dialog.png)
+<p align="center"><img src="media/screenshots/conflicts-dialog.png" alt="The conflicts dashboard listing every conflicted file"></p>
 
-- Every conflicted file listed with **Accept Yours · Accept Theirs · Merge…** actions
-- **Resolved files stay in the list** — green and check-marked, labeled with how they were settled (kept yours / kept theirs / merged)
-- **Hold-to-undo** on every resolved file: hold for 1.5s and `git checkout -m` restores the original conflict — even for files resolved in the merge editor
-- Branch context (`yours master ⟵ theirs feature`) and a live progress bar
-- When everything is resolved: a green confirmation with a Close button — files stay reviewable and undoable until you commit; committing or cancelling closes the dialog automatically
-- **Cancel Merge** aborts the operation and restores the repository to its pre-merge state (works for merge, rebase, cherry-pick, and revert)
-- A ⚠ **Resolve Conflicts** status-bar button while any conflicts remain
+The moment a merge, rebase, cherry-pick, or revert produces conflicts, the **Conflicts** page opens automatically — driven by direct `.git` operation-state watchers, not the slower git-extension poll.
 
-![All conflicts resolved](media/screenshots/conflicts-resolved.png)
+- Every conflicted file with **Accept Yours · Accept Theirs · Merge…** actions
+- Resolved files stay in the list — green, check-marked, and labeled with how they were settled
+- **Hold-to-undo** on any resolved file: hold 1.5s and `git checkout -m` restores the original conflict
+- **Cancel Merge** aborts the operation and restores the pre-merge state (merge, rebase, cherry-pick, revert)
+- Live progress bar, branch context (`yours ⟵ theirs`), and a ⚠ status-bar button while conflicts remain
 
-### 3-way merge editor
+<p align="center"><img src="media/screenshots/conflicts-resolved.png" alt="The conflicts dashboard with every file resolved"></p>
 
-Left (yours) · Result (editable) · Right (theirs), exactly like the IntelliJ merge dialog:
+## Side-by-side diff
 
-- Two-intensity glassy change highlighting that keeps syntax colors readable
-- Curved gutter **ribbons** connecting changes across panes, with crisp conflict frames
-- Per-side resolution: apply (≫/≪), append (Ctrl-click), or ignore (✕) each side independently — and the Accept Left/Right button that settles the merge lights up with a green check
-- Apply all non-conflicting changes (left / right / all), magic-wand for identical edits
-- **Undo/redo with action history** — ⌘Z / ⇧⌘Z (Ctrl+Z / Ctrl+Shift+Z), toolbar buttons, and a history dropdown listing every action by name
-- Change navigation (F7 / Shift+F7), synchronized scrolling, whitespace modes, large-file fallback
-- Conflicted files route into the merge editor automatically when opened
+<p align="center"><img src="media/screenshots/diff-view.png" alt="Line-aligned side-by-side diff with intra-line highlights"></p>
 
-### Side-by-side diff
+- **Compare** any two files, or a single file against its git `HEAD` — Explorer right-click or the `Merge Studio: Compare` command
+- Live re-diff as you edit the right pane, with intra-line highlights on exactly what changed
+- The same ribbons, colors, and navigation as the merge editor
 
-![Side-by-side diff](media/screenshots/diff-view.png)
+## Optional: hand off to a real JetBrains IDE
 
-- **Compare** (Explorer right-click, or the `Merge Studio: Compare` command): diff any two selected files, or a single file against its git HEAD
-- Live re-diff while you edit the right pane
-- Same ribbons, colors, and navigation as the merge editor
-- Prefer the real IDE? Set `jbMerge.diffTool: "jetbrains"` to hand the diff to your installed JetBrains IDE instead
-
-### Real JetBrains IDE integration (optional)
-
-If a JetBrains IDE is installed — WebStorm, PyCharm, IntelliJ IDEA, PhpStorm, GoLand, CLion, Rider, RubyMine, or DataGrip — Merge Studio can shell out to the **real** IDE merge window (`jbMerge.conflictResolver: "jetbrains"`), auto-detecting the IDE from PATH or /Applications.
+Have WebStorm, PyCharm, IntelliJ IDEA, PhpStorm, GoLand, CLion, Rider, RubyMine, or DataGrip installed? Set `jbMerge.conflictResolver: "jetbrains"` (or `jbMerge.diffTool: "jetbrains"`) and Merge Studio shells out to the **real** IDE window, auto-detecting it from your PATH or `/Applications`. Entirely optional — everything above works without it.
 
 ## Install
 
-- **Cursor / VSCodium / Gitpod / Windsurf** (Open VSX): search "Merge Studio" in the Extensions view, or run `ext install gitstudio.merge-studio`. Merge Studio is published on the [Open VSX Registry](https://open-vsx.org/extension/gitstudio/merge-studio).
-- **VS Code (Microsoft build)** — download the latest `.vsix` from [GitHub Releases](https://github.com/antonarnaudov/merge-studio/releases/latest) and install it:
-  - Extensions view → **⋯ → Install from VSIX…**, or
-  - `code --install-extension merge-studio-0.3.0.vsix`
+**VS Code** — search **Merge Studio** in the Extensions view, or:
 
-**Requirements**: VS Code 1.74+ (or Cursor), git on your PATH, and the built-in Git extension enabled. Merge Studio runs where your repository lives, so it needs a trusted, local (non-virtual) workspace.
+```bash
+code --install-extension gitstudio.merge-studio
+```
+
+**Cursor / VSCodium / Windsurf / Gitpod** — via the [Open VSX Registry](https://open-vsx.org/extension/gitstudio/merge-studio):
+
+```bash
+cursor --install-extension gitstudio.merge-studio
+```
+
+**Sideload a `.vsix`** — download the latest from [GitHub Releases](https://github.com/antonarnaudov/merge-studio/releases/latest):
+
+```bash
+code --install-extension merge-studio-0.3.0.vsix
+```
 
 ## Settings
 
 | Setting | Default | Description |
 | --- | --- | --- |
 | `jbMerge.conflictResolver` | `webview` | `webview` = embedded editor, `jetbrains` = launch the real installed IDE |
-| `jbMerge.diffTool` | `embedded` | Tool for the **Compare** command: `embedded` editor, or `jetbrains` to open the real IDE (falls back to embedded if none is found) |
+| `jbMerge.diffTool` | `embedded` | Tool for the **Compare** command: `embedded`, or `jetbrains` (falls back to embedded if no IDE is found) |
 | `jbMerge.autoOpen` | `true` | Automatically open conflicted files with the selected resolver |
-| `jbMerge.preferredIde` | `auto` | Which JetBrains IDE to launch (`auto` picks the first found) |
-| `jbMerge.jetbrainsPath` | `""` | Explicit path to a JetBrains IDE launcher |
+| `jbMerge.preferredIde` | `auto` | Which JetBrains IDE to launch (`auto` picks the first one found) |
+| `jbMerge.jetbrainsPath` | `""` | Explicit path to a JetBrains IDE launcher (overrides auto-detection) |
+
+## Requirements
+
+VS Code **1.74+** (or Cursor), **git** on your `PATH`, and the built-in Git extension enabled. Merge Studio operates on a repository on disk, so it needs a trusted, non-virtual (local) workspace.
 
 ## Development
 
 ```bash
-npm install           # install dependencies
-npm run watch         # incremental build (extension + webview)
-# Press F5 in VS Code to launch the Extension Development Host
-
-npm test              # pure-logic unit tests
-npm run check-types   # TypeScript type-check
-npx @vscode/vsce package   # build the .vsix
+npm install              # install dependencies
+npm run watch            # incremental build (extension + webview)
+npm test                 # pure-logic unit tests
+npm run check-types      # TypeScript type-check
+npx @vscode/vsce package # build the .vsix
 ```
+
+Press **F5** in VS Code to launch the Extension Development Host.
 
 | Layer | Responsibility |
 | --- | --- |
 | `src/extension.ts` | Activation, commands, auto-open routing, conflicts watcher |
-| `src/conflictsPanel.ts` | The Conflicts dialog (webview) |
+| `src/conflictsPanel.ts` | The Conflicts dashboard (webview) |
 | `src/mergeEditorProvider.ts` | `CustomTextEditorProvider` hosting the merge webview |
 | `src/git/` | git service, merge ops (accept side / abort), abort flow |
 | `src/jetbrains/` | Real-IDE detection and shell-out |
-| `src/engine/` | Diff/merge model (pure, unit-tested) |
+| `src/engine/` | Diff / merge model (pure, unit-tested) |
 | `webview/` | Front-end: Monaco panes, ribbons, decorations, undo history |
 
-## Support the project
+## Support
 
-Merge Studio is free, MIT-licensed, and built nights & weekends. If it makes your merges painless, a little support keeps it maintained and funds new features:
+Merge Studio is free, MIT-licensed, and built nights & weekends. If it makes your merges painless:
 
 - ❤️ **[Sponsor on GitHub](https://github.com/sponsors/antonarnaudov)** — recurring support
-- ☕ **[Buy me a coffee](https://checkout.revolut.com/pay/7a6070ab-99ba-4170-a125-c5911b1a5c1d)** — a one-off tip via Revolut
-
-Thank you — it genuinely helps. 🙏
+- ☕ **[Buy me a coffee](https://checkout.revolut.com/pay/7a6070ab-99ba-4170-a125-c5911b1a5c1d)** — a one-off tip
 
 ## License
 
-[MIT](LICENSE)
+[MIT](LICENSE) — part of the **GitStudio** family.
+
+---
+
+<sub>JetBrains, IntelliJ IDEA, WebStorm, PyCharm, PhpStorm, GoLand, CLion, Rider, RubyMine, and DataGrip are trademarks of JetBrains s.r.o. Merge Studio is an independent project and is not affiliated with, or endorsed by, JetBrains.</sub>

@@ -1,0 +1,61 @@
+name: Release
+
+# Publishes Merge Studio to the VS Code Marketplace and Open VSX whenever a
+# v*.*.* tag is pushed, then attaches the .vsix to the GitHub Release.
+#
+# One-time setup (Settings -> Secrets and variables -> Actions):
+#   VSCE_PAT  - Azure DevOps PAT with Marketplace > Manage scope (publisher: gitstudio)
+#   OVSX_PAT  - Open VSX access token (open-vsx.org -> Settings -> Access Tokens)
+#
+# Release flow:
+#   1. bump "version" in package.json + add a CHANGELOG entry
+#   2. git tag v0.3.1 && git push origin v0.3.1
+#   -> this workflow packages once and publishes to both registries.
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - run: npm ci
+
+      - name: Type-check & test
+        run: |
+          npm run check-types
+          npm test
+
+      - name: Package
+        run: npx @vscode/vsce package -o merge-studio.vsix
+
+      - name: Publish to VS Code Marketplace
+        run: npx @vscode/vsce publish --packagePath merge-studio.vsix
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+
+      - name: Publish to Open VSX
+        run: npx ovsx publish merge-studio.vsix
+        env:
+          OVSX_PAT: ${{ secrets.OVSX_PAT }}
+
+      - name: Attach .vsix to the GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" merge-studio.vsix --generate-notes \
+            || gh release upload "${GITHUB_REF_NAME}" merge-studio.vsix --clobber

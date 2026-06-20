@@ -25,7 +25,8 @@
     "vscode": "^1.74.0"
   },
   "categories": [
-    "SCM Providers"
+    "SCM Providers",
+    "Other"
   ],
   "keywords": [
     "merge",
