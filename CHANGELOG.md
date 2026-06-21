@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.2 — 2026-06-21
+
+- Maintenance release: first publish through the automated GitHub Actions release pipeline (token-free, triggered on a `v*.*.*` tag). No functional changes.
+
 ## 0.3.1 — 2026-06-21
 
 - Fixed the header status badges: shields.io retired its VS Marketplace badge type (it rendered "retired badge"), so the Marketplace badge is now a static link badge. The Open VSX badge stays live.
