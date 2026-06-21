@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.1 — 2026-06-21
+
+- Fixed the header status badges: shields.io retired its VS Marketplace badge type (it rendered "retired badge"), so the Marketplace badge is now a static link badge. The Open VSX badge stays live.
+- Restored the **Buy me a coffee** badge to the header row.
+
 ## 0.3.0 — 2026-06-13
 
 - New brand identity: a three-column "conflict resolver" logo, an indigo (#6B5BE6) accent, and a cover banner — applied across the marketplace icon, the Conflicts page header, and the README.

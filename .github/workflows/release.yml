@@ -24,6 +24,9 @@ permissions:
 jobs:
   release:
     runs-on: ubuntu-latest
+    env:
+      VSCE_PAT: ${{ secrets.VSCE_PAT }}
+      OVSX_PAT: ${{ secrets.OVSX_PAT }}
     steps:
       - uses: actions/checkout@v4
 
@@ -43,14 +46,12 @@ jobs:
         run: npx @vscode/vsce package -o merge-studio.vsix
 
       - name: Publish to VS Code Marketplace
+        if: env.VSCE_PAT != ''
         run: npx @vscode/vsce publish --packagePath merge-studio.vsix
-        env:
-          VSCE_PAT: ${{ secrets.VSCE_PAT }}
 
       - name: Publish to Open VSX
+        if: env.OVSX_PAT != ''
         run: npx ovsx publish merge-studio.vsix
-        env:
-          OVSX_PAT: ${{ secrets.OVSX_PAT }}
 
       - name: Attach .vsix to the GitHub Release
         if: startsWith(github.ref, 'refs/tags/')
