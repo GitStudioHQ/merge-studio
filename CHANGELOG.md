@@ -7,6 +7,7 @@
 - The Conflicts page picked up the new mark, an indigo primary action, and a subtle support line shown only once every conflict is resolved.
 - Refreshed screenshots (merge editor, side-by-side diff, Conflicts page) rendered from the real UI.
 - Support the project: ❤️ GitHub Sponsors or ☕ a one-off tip via Revolut.
+- Now published under the **GitStudio** publisher (extension id `gitstudio.merge-studio`) on both the VS Code Marketplace and Open VSX.
 
 ## 0.2.4 — 2026-06-13
 

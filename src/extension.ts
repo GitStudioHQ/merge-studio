@@ -23,7 +23,7 @@ import { DEMO_DIFF, DEMO_MERGE } from "./demoContent";
 
 const COEXIST_PROMPT_KEY = "jbMerge.coexistPromptShown";
 const WALKTHROUGH_SHOWN_KEY = "jbMerge.walkthroughShown";
-const WALKTHROUGH_ID = "antonarnaudov.merge-studio#mergeStudio.gettingStarted";
+const WALKTHROUGH_ID = "gitstudio.merge-studio#mergeStudio.gettingStarted";
 
 export function activate(context: vscode.ExtensionContext): void {
   context.subscriptions.push(MergeEditorProvider.register(context));

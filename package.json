@@ -3,7 +3,7 @@
   "displayName": "Merge Studio — JetBrains-Style Merge & Diff",
   "description": "Resolve merge conflicts like in JetBrains IDEs (IntelliJ, PyCharm, WebStorm): a 3-way merge editor with ribbons, undo history and a conflicts dialog, plus side-by-side diff — for VS Code and Cursor.",
   "version": "0.3.0",
-  "publisher": "antonarnaudov",
+  "publisher": "gitstudio",
   "license": "MIT",
   "icon": "media/icon.png",
   "repository": {
@@ -25,7 +25,8 @@
     "vscode": "^1.74.0"
   },
   "categories": [
-    "SCM Providers"
+    "SCM Providers",
+    "Other"
   ],
   "keywords": [
     "merge",
