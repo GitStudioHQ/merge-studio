@@ -5,11 +5,11 @@
 </p>
 
 <p align="center">
-  <a href="https://marketplace.visualstudio.com/items?itemName=gitstudio.merge-studio"><img src="https://img.shields.io/visual-studio-marketplace/v/gitstudio.merge-studio?label=VS%20Marketplace&logo=visualstudiocode&logoColor=white&color=6B5BE6" alt="VS Marketplace version"></a>
-  <a href="https://marketplace.visualstudio.com/items?itemName=gitstudio.merge-studio"><img src="https://img.shields.io/visual-studio-marketplace/i/gitstudio.merge-studio?label=installs&color=6B5BE6" alt="VS Marketplace installs"></a>
+  <a href="https://marketplace.visualstudio.com/items?itemName=gitstudio.merge-studio"><img src="https://img.shields.io/badge/VS_Marketplace-Merge_Studio-6B5BE6?logo=visualstudiocode&logoColor=white" alt="VS Marketplace"></a>
   <a href="https://open-vsx.org/extension/gitstudio/merge-studio"><img src="https://img.shields.io/open-vsx/v/gitstudio/merge-studio?label=Open%20VSX&logo=eclipseide&logoColor=white&color=C160EF" alt="Open VSX version"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-44a248.svg" alt="License: MIT"></a>
   <a href="https://github.com/sponsors/antonarnaudov"><img src="https://img.shields.io/badge/Sponsor-%E2%9D%A4-db61a2?logo=githubsponsors&logoColor=white" alt="Sponsor"></a>
+  <a href="https://checkout.revolut.com/pay/7a6070ab-99ba-4170-a125-c5911b1a5c1d"><img src="https://img.shields.io/badge/Buy_me_a_coffee-%E2%98%95-6B5BE6" alt="Buy me a coffee"></a>
 </p>
 
 <p align="center">
