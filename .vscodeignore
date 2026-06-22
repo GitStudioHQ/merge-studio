@@ -14,6 +14,7 @@ tsconfig.json
 .editorconfig
 **/.DS_Store
 test-harness/**
+docs/**
 .github/**
 media/*.svg
 media/kept-for-reference/**
