@@ -73,7 +73,7 @@ code --install-extension gitstudio.merge-studio
 cursor --install-extension gitstudio.merge-studio
 ```
 
-**Sideload a `.vsix`** — download the latest from [GitHub Releases](https://github.com/antonarnaudov/merge-studio/releases/latest):
+**Sideload a `.vsix`** — download the latest from [GitHub Releases](https://github.com/GitStudioHQ/merge-studio/releases/latest):
 
 ```bash
 code --install-extension merge-studio-0.3.0.vsix
