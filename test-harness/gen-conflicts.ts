@@ -65,4 +65,17 @@ const doneState = {
 };
 const doneHtml = html.replace(JSON.stringify(state), JSON.stringify(doneState));
 writeFileSync(join(import.meta.dirname, "conflicts-done.html"), doneHtml);
-console.log("wrote test-harness/conflicts.html and conflicts-done.html");
+
+// Long branch name: confirms the name truncates (ellipsis + hover title)
+// instead of wrapping the branch pill onto multiple lines.
+const longState = {
+  ...state,
+  yoursName: "main",
+  theirsName: "origin/feature/payments-refactor-experimental-do-not-merge",
+};
+const longHtml = html.replace(JSON.stringify(state), JSON.stringify(longState));
+writeFileSync(join(import.meta.dirname, "conflicts-longnames.html"), longHtml);
+
+console.log(
+  "wrote test-harness/conflicts.html, conflicts-done.html, conflicts-longnames.html",
+);
