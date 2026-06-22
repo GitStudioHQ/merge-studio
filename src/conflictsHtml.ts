@@ -116,10 +116,8 @@ export function renderConflictsHtml(): string {
     }
     .merge-arrow {
       flex: none;
-      color: var(--jb-brand);
-      font-size: 15px;
-      line-height: 1;
-      opacity: 0.85;
+      display: block; /* drop the inline baseline gap so it sits centred */
+      color: var(--vscode-foreground); /* solid + theme-aware (black on light) */
     }
 
     .progress-row {
@@ -439,7 +437,7 @@ export function renderConflictsHtml(): string {
         <span class="role">yours</span>
         <span class="bname" id="yours"></span>
       </span>
-      <span class="merge-arrow" title="theirs is merged into yours" aria-hidden="true">⟵</span>
+      <svg class="merge-arrow" width="24" height="14" viewBox="0 0 24 14" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 7 H3 M8 2 L3 7 L8 12"/></svg>
       <span class="branch branch-theirs">
         <svg class="branch-ico" width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="4.5" cy="3.4" r="1.7"/><circle cx="4.5" cy="12.6" r="1.7"/><circle cx="11.5" cy="5.2" r="1.7"/><path d="M4.5 5.1v5.5"/><path d="M11.5 6.9c0 2.6-2.7 3-4.6 3.4"/></svg>
         <span class="role">theirs</span>
