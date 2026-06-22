@@ -1,7 +1,7 @@
 import * as monaco from "monaco-editor";
 import type { MergeInitPayload } from "../src/shared/protocol";
 import type { ChangeBlock, LineSpan, MergeModel, Side } from "../src/engine/types";
-import { blockRole, isEmptySpan } from "../src/engine/types";
+import { blockRole, isEmptySpan, sideBlockSpan } from "../src/engine/types";
 import { buildMergeModel } from "../src/engine/mergeModel";
 import { languageForFile } from "./language";
 import { ensureNativeTheme, nativeFontOptions } from "./theme";
@@ -716,9 +716,12 @@ export class MergeView {
       return "";
     }
     const lines = side === "left" ? this.oursLines : this.theirsLines;
-    return lines
-      .slice(change.sideSpan.start - 1, change.sideSpan.endExclusive - 1)
-      .join("\n");
+    // The side's FULL block region, not just its change hunk: a clustered block
+    // can include lines this side never touched (passthrough), and accepting
+    // the side must carry them along — otherwise resolving a modify/delete (or
+    // any asymmetric conflict) silently drops the unchanged lines.
+    const span = sideBlockSpan(block, side);
+    return lines.slice(span.start - 1, span.endExclusive - 1).join("\n");
   }
 
   private readResultLines(span: LineSpan): string {

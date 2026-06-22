@@ -1,9 +1,21 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { buildMergeModel } from "../src/engine/mergeModel";
-import { isEmptySpan } from "../src/engine/types";
+import { isEmptySpan, sideBlockSpan } from "../src/engine/types";
 
 const lines = (arr: string[]): string => arr.join("\n");
+
+/** What `acceptSide` writes for a side: the side's full block region. */
+function acceptedText(
+  block: ReturnType<typeof buildMergeModel>["blocks"][number],
+  side: "left" | "right",
+  oursLines: string[],
+  theirsLines: string[],
+): string {
+  const span = sideBlockSpan(block, side);
+  const src = side === "left" ? oursLines : theirsLines;
+  return src.slice(span.start - 1, span.endExclusive - 1).join("\n");
+}
 
 const BASE = lines([
   'const greeting = "hello";',
@@ -111,6 +123,54 @@ test("clean input yields no blocks", () => {
   const model = buildMergeModel(BASE, BASE, BASE);
   assert.equal(model.counts.total, 0);
   assert.equal(model.blocks.length, 0);
+});
+
+test("accepting a side keeps its passthrough lines (modify/delete)", () => {
+  // legacy.py: ours deleted the file, theirs changed only the body. The `def`
+  // line is unchanged by theirs but part of the clustered conflict block.
+  // Regression: accepting theirs used to write only its change hunk, dropping
+  // the `def` line.
+  const base = lines([
+    "def old_handler(payload):",
+    "    # legacy code path",
+    "    return payload",
+    "",
+  ]);
+  const ours = ""; // deleted on our side
+  const theirs = lines([
+    "def old_handler(payload):",
+    "    # kept for the 1.5 line",
+    '    return {"data": payload}',
+    "",
+  ]);
+  const oursLines = ours.split("\n");
+  const theirsLines = theirs.split("\n");
+
+  const model = buildMergeModel(base, ours, theirs);
+  assert.equal(model.counts.conflicts, 1);
+  const block = model.blocks[0];
+
+  // Accepting theirs keeps the whole function, including the unchanged def line.
+  const right = acceptedText(block, "right", oursLines, theirsLines);
+  assert.match(right, /^def old_handler\(payload\):/);
+  assert.match(right, /return \{"data": payload\}/);
+
+  // Accepting ours (the deleting side) removes the function.
+  const left = acceptedText(block, "left", oursLines, theirsLines);
+  assert.equal(left, "");
+});
+
+test("symmetric single-line conflict is unaffected by passthrough handling", () => {
+  // leadIn/trailing are 0 here, so the accepted text is exactly the side line.
+  const model = buildMergeModel(
+    lines(["a", "b", "c"]),
+    lines(["a", "OURS", "c"]),
+    lines(["a", "THEIRS", "c"]),
+  );
+  const block = model.blocks[0];
+  assert.equal(block.kind, "conflict");
+  assert.equal(acceptedText(block, "left", ["a", "OURS", "c"], ["a", "THEIRS", "c"]), "OURS");
+  assert.equal(acceptedText(block, "right", ["a", "OURS", "c"], ["a", "THEIRS", "c"]), "THEIRS");
 });
 
 test("a conflict with no common ancestor (base='') still conflicts", () => {

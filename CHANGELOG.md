@@ -6,7 +6,8 @@ Bug-fix release for conflict resolution — the previous build mishandled real-w
 
 - **The 3-way merge editor showed "0 conflicts" on real conflicts.** Git index stages were read with a malformed ref (`:2:` instead of `:2`), so every stage read failed and the editor fell back to marker reconstruction. For the default (non-diff3) conflict style that left it with no common ancestor, and the editor then skipped building its model entirely — rendering three dead panes. The merge model is now built for every conflict, including ones with no base (add/add, or a baseless fallback), and the stage refs are correct so the true base is recovered.
 - **Wrong conflict badge ("deleted on both") on ordinary conflicts.** The Conflicts dialog labelled files from hardcoded `vscode.git` Status-enum numbers, which shift across editor versions (a normal both-modified file showed as "deleted by both" on editors whose enum predated `TYPE_CHANGED`). Badges now come from git's own `status --porcelain=v2` codes, which are version-independent.
-- New regression tests: the no-common-ancestor merge model, no-base alignment, and porcelain-based badge classification (both-modified → no badge, add/add → "added by both", modify/delete → "deleted by us/them").
+- **Accepting a side dropped unchanged lines in modify/delete and asymmetric conflicts.** When one side's change was smaller than the clustered conflict block (e.g. a deleted-by-us file where the other side only edited the body), accepting that side wrote just its change hunk over the whole block — silently removing the passthrough lines it never touched (such as the function's `def` line). Accepting a side now carries its full block region.
+- New regression tests: the no-common-ancestor merge model, no-base alignment, porcelain-based badge classification (both-modified → no badge, add/add → "added by both", modify/delete → "deleted by us/them"), and passthrough-preserving accept.
 
 ## 0.3.2 — 2026-06-21
 
