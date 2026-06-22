@@ -12,7 +12,7 @@ diff viewer.
 ## Install
 
 - **Open VSX** (Cursor, VSCodium): [open-vsx.org/extension/gitstudio/merge-studio](https://open-vsx.org/extension/gitstudio/merge-studio)
-- **VSIX**: grab the latest from [GitHub Releases](https://github.com/antonarnaudov/merge-studio/releases) and run *Extensions: Install from VSIX…*
+- **VSIX**: grab the latest from [GitHub Releases](https://github.com/GitStudioHQ/merge-studio/releases) and run *Extensions: Install from VSIX…*
 
 ## What it does
 
@@ -26,5 +26,5 @@ diff viewer.
 
 ## Links
 
-- [Source &amp; issues on GitHub](https://github.com/antonarnaudov/merge-studio)
-- [Changelog](https://github.com/antonarnaudov/merge-studio/blob/main/CHANGELOG.md)
+- [Source &amp; issues on GitHub](https://github.com/GitStudioHQ/merge-studio)
+- [Changelog](https://github.com/GitStudioHQ/merge-studio/blob/main/CHANGELOG.md)
