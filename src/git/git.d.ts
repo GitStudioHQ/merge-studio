@@ -66,7 +66,7 @@ export interface Repository {
   readonly rootUri: Uri;
   readonly state: RepositoryState;
 
-  /** Runs `git show <ref>:<path>`. Stage refs: `:1:` base, `:2:` ours, `:3:` theirs. */
+  /** Runs `git show <ref>:<path>`. Stage refs: `:1` base, `:2` ours, `:3` theirs. */
   show(ref: string, path: string): Promise<string>;
 
   /**

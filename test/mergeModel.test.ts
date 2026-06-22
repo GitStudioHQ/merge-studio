@@ -113,6 +113,19 @@ test("clean input yields no blocks", () => {
   assert.equal(model.blocks.length, 0);
 });
 
+test("a conflict with no common ancestor (base='') still conflicts", () => {
+  // add/add conflicts, and the marker fallback for the default conflict style,
+  // arrive with no base. Regression: the merge editor used to skip building
+  // the model whenever there was no base (the `hasBase` guard), rendering
+  // three dead panes and "0 conflicts".
+  const ours = lines(["def feature_flag():", "    return 'main'"]);
+  const theirs = lines(["def feature_flag():", "    return 'feature'"]);
+  const model = buildMergeModel("", ours, theirs);
+
+  assert.ok(model.counts.total > 0, "expected at least one block, got none");
+  assert.ok(model.counts.conflicts > 0, "expected a conflict, got none");
+});
+
 test("'ignore all whitespace' suppresses whitespace-only side changes", () => {
   const base = lines(["a", "b", "c"]);
   const ours = lines(["a", "  b  ", "c"]); // whitespace-only change

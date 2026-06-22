@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.3.3 — 2026-06-22
+
+Bug-fix release for conflict resolution — the previous build mishandled real-world conflicts.
+
+- **The 3-way merge editor showed "0 conflicts" on real conflicts.** Git index stages were read with a malformed ref (`:2:` instead of `:2`), so every stage read failed and the editor fell back to marker reconstruction. For the default (non-diff3) conflict style that left it with no common ancestor, and the editor then skipped building its model entirely — rendering three dead panes. The merge model is now built for every conflict, including ones with no base (add/add, or a baseless fallback), and the stage refs are correct so the true base is recovered.
+- **Wrong conflict badge ("deleted on both") on ordinary conflicts.** The Conflicts dialog labelled files from hardcoded `vscode.git` Status-enum numbers, which shift across editor versions (a normal both-modified file showed as "deleted by both" on editors whose enum predated `TYPE_CHANGED`). Badges now come from git's own `status --porcelain=v2` codes, which are version-independent.
+- New regression tests: the no-common-ancestor merge model, no-base alignment, and porcelain-based badge classification (both-modified → no badge, add/add → "added by both", modify/delete → "deleted by us/them").
+
 ## 0.3.2 — 2026-06-21
 
 - Maintenance release: first publish through the automated GitHub Actions release pipeline (token-free, triggered on a `v*.*.*` tag). No functional changes.

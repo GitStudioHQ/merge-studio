@@ -139,3 +139,16 @@ test("diff: single-line modification needs no spacers", () => {
   assert.deepEqual(zones.left, []);
   assert.deepEqual(zones.right, []);
 });
+
+test("alignment handles a no-common-ancestor model (base='') without throwing", () => {
+  // With the `hasBase` guard removed, the no-base model now reaches the
+  // alignment math; the span arithmetic must stay well-defined.
+  const model = buildMergeModel("", lines(["x", "y"]), lines(["p", "q", "r"]));
+  let zones!: ReturnType<typeof computeAlignmentZones>;
+  assert.doesNotThrow(() => {
+    zones = computeAlignmentZones(model);
+  });
+  assert.ok(Array.isArray(zones.left));
+  assert.ok(Array.isArray(zones.result));
+  assert.ok(Array.isArray(zones.right));
+});

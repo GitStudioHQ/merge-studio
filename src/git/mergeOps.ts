@@ -14,6 +14,47 @@ async function git(root: string, args: string[]): Promise<string> {
   return stdout;
 }
 
+// Maps a porcelain-v2 unmerged XY code to the badge shown in the Conflicts
+// dialog. Sourced from git itself (not the vscode.git Status enum, whose
+// numeric values drift across editor versions and mislabelled conflicts —
+// e.g. a normal both-modified file rendering as "deleted by both"). "" = the
+// ordinary both-modified case, which gets no badge.
+const UNMERGED_BADGE: Record<string, string> = {
+  DD: "deleted by both",
+  AU: "added by us",
+  UD: "deleted by them",
+  UA: "added by them",
+  DU: "deleted by us",
+  AA: "added by both",
+  UU: "",
+};
+
+/**
+ * Parses `git status --porcelain=v2 -z` and returns repo-root-relative paths
+ * mapped to their conflict badge. Only unmerged (`u`) records are kept. An
+ * unmerged record is `u <XY> <sub> <m1> <m2> <m3> <mW> <h1> <h2> <h3> <path>`
+ * (NUL-separated); the path is the remainder after the nine fixed fields.
+ */
+export function parseUnmergedBadges(porcelain: string): Map<string, string> {
+  const badges = new Map<string, string>();
+  for (const record of porcelain.split("\0")) {
+    const match = /^u (\S\S) (?:\S+ ){8}(.+)$/.exec(record);
+    if (!match) {
+      continue;
+    }
+    const [, xy, filePath] = match;
+    badges.set(filePath, UNMERGED_BADGE[xy] ?? "");
+  }
+  return badges;
+}
+
+/** Repo-root-relative path -> conflict badge for every unmerged file. */
+export async function conflictBadges(
+  root: string,
+): Promise<Map<string, string>> {
+  return parseUnmergedBadges(await git(root, ["status", "--porcelain=v2", "-z"]));
+}
+
 /** Whether a state file/dir inside .git exists (worktree-safe via --git-path). */
 async function gitStateExists(root: string, name: string): Promise<boolean> {
   try {
