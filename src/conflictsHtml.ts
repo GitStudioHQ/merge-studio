@@ -437,7 +437,7 @@ export function renderConflictsHtml(): string {
         <span class="role">yours</span>
         <span class="bname" id="yours"></span>
       </span>
-      <svg class="merge-arrow" width="24" height="14" viewBox="0 0 24 14" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 7 H3 M8 2 L3 7 L8 12"/></svg>
+      <svg class="merge-arrow" width="15" height="9" viewBox="0 0 15 9" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M13.5 4.5 H2 M5.5 1.5 L2 4.5 L5.5 7.5"/></svg>
       <span class="branch branch-theirs">
         <svg class="branch-ico" width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="4.5" cy="3.4" r="1.7"/><circle cx="4.5" cy="12.6" r="1.7"/><circle cx="11.5" cy="5.2" r="1.7"/><path d="M4.5 5.1v5.5"/><path d="M11.5 6.9c0 2.6-2.7 3-4.6 3.4"/></svg>
         <span class="role">theirs</span>
