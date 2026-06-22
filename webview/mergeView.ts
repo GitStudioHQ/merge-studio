@@ -1,7 +1,7 @@
 import * as monaco from "monaco-editor";
 import type { MergeInitPayload } from "../src/shared/protocol";
 import type { ChangeBlock, LineSpan, MergeModel, Side } from "../src/engine/types";
-import { blockRole, isEmptySpan } from "../src/engine/types";
+import { blockRole, isEmptySpan, sideBlockSpan } from "../src/engine/types";
 import { buildMergeModel } from "../src/engine/mergeModel";
 import { languageForFile } from "./language";
 import { ensureNativeTheme, nativeFontOptions } from "./theme";
@@ -201,7 +201,11 @@ export class MergeView {
     this.gutterB = this.addGutter(grid, 4, "b");
     const rightBody = this.addPane(grid, 5, payload.theirsLabel, true);
 
-    const resultSeed = payload.hasBase ? payload.base : payload.ours;
+    // Result starts as a copy of base so the block trackers (anchored in base
+    // coordinates) line up. With no common ancestor (add/add, or a fallback
+    // that couldn't recover a base) base is "", so the result starts empty and
+    // the user builds it by accepting sides — same as IntelliJ.
+    const resultSeed = payload.base;
 
     this.left = monaco.editor.create(leftBody, {
       ...SHARED_OPTIONS,
@@ -238,49 +242,51 @@ export class MergeView {
 
     this.editors = [this.left, this.result, this.right];
 
-    if (payload.hasBase) {
-      this.baseLines = splitLines(payload.base);
-      this.oursLines = splitLines(payload.ours);
-      this.theirsLines = splitLines(payload.theirs);
+    // Build the merge model for every conflict — including ones with no common
+    // ancestor (add/add, or a marker fallback that recovered no base, where
+    // payload.base is ""). Guarding this on hasBase used to leave those
+    // conflicts as three dead panes showing "0 conflicts".
+    this.baseLines = splitLines(payload.base);
+    this.oursLines = splitLines(payload.ours);
+    this.theirsLines = splitLines(payload.theirs);
 
-      const totalLines =
-        this.baseLines.length + this.oursLines.length + this.theirsLines.length;
-      this.largeFile = totalLines > LARGE_FILE_LINE_THRESHOLD;
-      this.onLargeFile?.(this.largeFile);
+    const totalLines =
+      this.baseLines.length + this.oursLines.length + this.theirsLines.length;
+    this.largeFile = totalLines > LARGE_FILE_LINE_THRESHOLD;
+    this.onLargeFile?.(this.largeFile);
 
-      this.model = buildMergeModel(payload.base, payload.ours, payload.theirs, {
-        whitespace: this.renderOptions.whitespace,
-      });
-      this.initBlockState();
-      this.installTrackers();
+    this.model = buildMergeModel(payload.base, payload.ours, payload.theirs, {
+      whitespace: this.renderOptions.whitespace,
+    });
+    this.initBlockState();
+    this.installTrackers();
 
-      this.decorations = new DecorationManager({
-        left: this.left,
-        result: this.result,
-        right: this.right,
-      });
-      this.installAlignment(this.model);
+    this.decorations = new DecorationManager({
+      left: this.left,
+      result: this.result,
+      right: this.right,
+    });
+    this.installAlignment(this.model);
 
-      this.buttonLayerA = this.addButtonLayer(this.gutterA);
-      this.buttonLayerB = this.addButtonLayer(this.gutterB);
+    this.buttonLayerA = this.addButtonLayer(this.gutterA);
+    this.buttonLayerB = this.addButtonLayer(this.gutterB);
 
-      this.ribbons = new RibbonOverlay(
-        this.gutterA,
-        this.gutterB,
-        { left: this.left, result: this.result, right: this.right },
-        () => this.model,
-        {
-          resultSpanOf: (block) => this.currentResultSpan(block),
-          isResolved: (block) => this.isResolved(block),
-          isSideDone: (block, side) => this.isSideDone(block, side),
-        },
-      );
+    this.ribbons = new RibbonOverlay(
+      this.gutterA,
+      this.gutterB,
+      { left: this.left, result: this.result, right: this.right },
+      () => this.model,
+      {
+        resultSpanOf: (block) => this.currentResultSpan(block),
+        isResolved: (block) => this.isResolved(block),
+        isSideDone: (block, side) => this.isSideDone(block, side),
+      },
+    );
 
-      this.installViewListeners();
-      this.installNavigationKeys();
-      this.refresh();
-      this.revealFirstPending();
-    }
+    this.installViewListeners();
+    this.installNavigationKeys();
+    this.refresh();
+    this.revealFirstPending();
 
     this.installSyncScroll();
     this.observeResize();
@@ -710,9 +716,12 @@ export class MergeView {
       return "";
     }
     const lines = side === "left" ? this.oursLines : this.theirsLines;
-    return lines
-      .slice(change.sideSpan.start - 1, change.sideSpan.endExclusive - 1)
-      .join("\n");
+    // The side's FULL block region, not just its change hunk: a clustered block
+    // can include lines this side never touched (passthrough), and accepting
+    // the side must carry them along — otherwise resolving a modify/delete (or
+    // any asymmetric conflict) silently drops the unchanged lines.
+    const span = sideBlockSpan(block, side);
+    return lines.slice(span.start - 1, span.endExclusive - 1).join("\n");
   }
 
   private readResultLines(span: LineSpan): string {

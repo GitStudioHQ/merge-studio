@@ -29,18 +29,20 @@ export function renderConflictsHtml(): string {
       --jb-ok: var(--vscode-testing-iconPassed, var(--vscode-charts-green, #56a05e));
       --jb-brand: #6b5be6;
       --jb-brand-hover: #7c6cf0;
+      --jb-yours: #4c9af0;   /* your current branch (HEAD) */
+      --jb-theirs: #b08cff;  /* the incoming branch */
       /* radius scale: controls (buttons), pills (tags/status), cards (panels) */
       --r-control: 6px;
       --r-pill: 999px;
       --r-card: 8px;
     }
     .dialog {
-      width: min(760px, 100%);
+      width: min(940px, 100%);
       display: flex;
       flex-direction: column;
       height: 100%;
       box-sizing: border-box;
-      padding: 26px 28px 16px;
+      padding: 22px 26px 14px;
     }
 
     header { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
@@ -60,34 +62,69 @@ export function renderConflictsHtml(): string {
     .sub {
       color: var(--vscode-descriptionForeground);
       font-size: 12px;
-      margin: 6px 0 0 42px;
+      margin: 8px 0 0;
     }
 
-    .branches {
+    /* The two branches being merged, on their own full-width row so long
+     * names get room instead of wrapping. Colour-coded: yours vs theirs. */
+    .branchbar {
       display: flex;
       align-items: center;
-      gap: 8px;
-      font-size: 12px;
+      gap: 10px;
+      margin: 12px 0 0;
+      flex-wrap: wrap;
+      row-gap: 8px;
     }
     .branch {
       display: inline-flex;
       align-items: center;
       gap: 6px;
-      padding: 2px 10px;
+      max-width: 100%;
+      padding: 3px 11px;
       border-radius: var(--r-pill);
-      background: var(--vscode-badge-background);
-      color: var(--vscode-badge-foreground);
-      font-family: var(--vscode-editor-font-family, monospace);
+      border: 1px solid transparent;
       font-size: 11px;
     }
-    .branch .who { opacity: 0.75; font-family: var(--vscode-font-family); }
-    .arrow { color: var(--vscode-descriptionForeground); }
+    .branch-ico { flex: none; }
+    .branch .role {
+      font-size: 9px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.7px;
+      opacity: 0.9;
+    }
+    .branch .bname {
+      font-family: var(--vscode-editor-font-family, monospace);
+      font-weight: 600;
+      color: var(--vscode-foreground);
+      min-width: 0;
+      /* Always show the whole name: one line when it fits (the common case
+       * now the branches have their own full-width row), and if the panel is
+       * too narrow, reflow at the path separators (a <wbr> is injected after
+       * each "/") instead of truncating. */
+      overflow-wrap: anywhere;
+    }
+    .branch-yours {
+      color: var(--jb-yours);
+      border-color: rgba(76, 154, 240, 0.55);
+      background: rgba(76, 154, 240, 0.12);
+    }
+    .branch-theirs {
+      color: var(--jb-theirs);
+      border-color: rgba(176, 140, 255, 0.55);
+      background: rgba(176, 140, 255, 0.13);
+    }
+    .merge-arrow {
+      flex: none;
+      display: block; /* drop the inline baseline gap so it sits centred */
+      color: var(--vscode-foreground); /* solid + theme-aware (black on light) */
+    }
 
     .progress-row {
       display: flex;
       align-items: center;
       gap: 10px;
-      margin: 16px 0 10px;
+      margin: 14px 0 8px;
     }
     .bar {
       flex: 1;
@@ -393,12 +430,20 @@ export function renderConflictsHtml(): string {
 </svg>
       <h1>Merge Conflicts</h1>
       <span class="chip" id="chip"></span>
-      <div class="branches" id="branches" hidden>
-        <span class="branch"><span class="who">yours</span><span id="yours"></span></span>
-        <span class="arrow">⟵</span>
-        <span class="branch"><span class="who">theirs</span><span id="theirs"></span></span>
-      </div>
     </header>
+    <div class="branchbar" id="branches" hidden>
+      <span class="branch branch-yours">
+        <svg class="branch-ico" width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="4.5" cy="3.4" r="1.7"/><circle cx="4.5" cy="12.6" r="1.7"/><circle cx="11.5" cy="5.2" r="1.7"/><path d="M4.5 5.1v5.5"/><path d="M11.5 6.9c0 2.6-2.7 3-4.6 3.4"/></svg>
+        <span class="role">yours</span>
+        <span class="bname" id="yours"></span>
+      </span>
+      <svg class="merge-arrow" width="15" height="9" viewBox="0 0 15 9" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M13.5 4.5 H2 M5.5 1.5 L2 4.5 L5.5 7.5"/></svg>
+      <span class="branch branch-theirs">
+        <svg class="branch-ico" width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="4.5" cy="3.4" r="1.7"/><circle cx="4.5" cy="12.6" r="1.7"/><circle cx="11.5" cy="5.2" r="1.7"/><path d="M4.5 5.1v5.5"/><path d="M11.5 6.9c0 2.6-2.7 3-4.6 3.4"/></svg>
+        <span class="role">theirs</span>
+        <span class="bname" id="theirs"></span>
+      </span>
+    </div>
     <div class="sub" id="sub"></div>
 
     <div class="progress-row" id="progressRow" hidden>
@@ -451,6 +496,18 @@ export function renderConflictsHtml(): string {
 
     function cap(word) { return word.charAt(0).toUpperCase() + word.slice(1); }
 
+    // Render a branch name in full, with a break opportunity after each "/" so
+    // a long name reflows at path boundaries (only if too narrow for one line)
+    // rather than being cut off. Escapes HTML; the full name goes in the title.
+    function setBranch(id, name) {
+      const esc = name
+        .split("&").join("&amp;")
+        .split("<").join("&lt;")
+        .split(">").join("&gt;");
+      el(id).innerHTML = esc.split("/").join("/<wbr>");
+      el(id).title = name;
+    }
+
     function render(state) {
       const files = state.files;
       const pending = files.filter((f) => f.status !== "resolved").length;
@@ -466,8 +523,8 @@ export function renderConflictsHtml(): string {
       const hasBranches = state.yoursName || state.theirsName;
       el("branches").hidden = !hasBranches;
       if (hasBranches) {
-        el("yours").textContent = state.yoursName || "HEAD";
-        el("theirs").textContent = state.theirsName || "incoming";
+        setBranch("yours", state.yoursName || "HEAD");
+        setBranch("theirs", state.theirsName || "incoming");
       }
 
       el("progressRow").hidden = state.total === 0;

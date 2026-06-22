@@ -77,6 +77,30 @@ export function isEmptySpan(span: LineSpan): boolean {
   return span.start === span.endExclusive;
 }
 
+/**
+ * A side's full extent for a block, in that side's own coordinates
+ * (ours = left, theirs = right), INCLUDING passthrough lines the side did not
+ * change. A block's `baseSpan` is the union of both sides' changes, so it can
+ * cover base lines one side left untouched; those lines still exist verbatim in
+ * that side and must travel with its version when it is accepted — otherwise
+ * accepting the side drops them (e.g. the unchanged `def` line of a function
+ * whose body the other side deleted). Returns an empty span at the block start
+ * when the side made no change here. Mirrors the lead-in/trailing arithmetic in
+ * the alignment computation's placeSide.
+ */
+export function sideBlockSpan(block: ChangeBlock, side: Side): LineSpan {
+  const change = side === "left" ? block.left : block.right;
+  if (!change) {
+    return { start: block.baseSpan.start, endExclusive: block.baseSpan.start };
+  }
+  const leadIn = change.baseSpan.start - block.baseSpan.start;
+  const trailing = block.baseSpan.endExclusive - change.baseSpan.endExclusive;
+  return {
+    start: change.sideSpan.start - leadIn,
+    endExclusive: change.sideSpan.endExclusive + trailing,
+  };
+}
+
 /** The display role (color) for a block: conflicts are red, else the side's role. */
 export function blockRole(block: ChangeBlock): ChangeRole {
   if (block.kind === "conflict") {

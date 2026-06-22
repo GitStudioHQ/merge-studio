@@ -7,8 +7,10 @@ import * as path from "node:path";
 import {
   abortOperation,
   acceptSide,
+  conflictBadges,
   describeIncoming,
   detectOperation,
+  parseUnmergedBadges,
   restoreConflict,
 } from "../src/git/mergeOps";
 
@@ -241,6 +243,68 @@ test("describeIncoming parses MERGE_MSG variants", async () => {
     // Custom -m messages carry no branch name — must NOT false-positive.
     writeMergeMsg(root, "custom message from -m");
     assert.equal(await describeIncoming(root), undefined);
+  } finally {
+    cleanup(root);
+  }
+});
+
+test("parseUnmergedBadges maps porcelain-v2 XY codes (version-independent)", () => {
+  // A real `git status --porcelain=v2 -z` body (NUL-separated). The leading
+  // `1`/`2` records (ordinary/renamed changes) must be ignored. The key
+  // regression: a both-modified file (UU) must map to "" — NOT "deleted by
+  // both", which the old hardcoded vscode.git Status-enum map produced on
+  // editors whose enum predated TYPE_CHANGED.
+  const rec = (s: string) => s + "\0";
+  const porcelain =
+    rec("1 .M N... 100644 100644 100644 aaa bbb clean.txt") +
+    rec("u UU N... 100644 100644 100644 100644 h1 h2 h3 src/both modified.py") +
+    rec("u AA N... 000000 100644 100644 100644 0000 h2 h3 added.py") +
+    rec("u DD N... 100644 000000 000000 000000 h1 0000 0000 gone.py") +
+    rec("u UD N... 100644 100644 000000 100644 h1 h2 0000 ours-kept.py") +
+    rec("u DU N... 100644 000000 100644 100644 h1 0000 h3 theirs-kept.py");
+
+  const badges = parseUnmergedBadges(porcelain);
+  assert.equal(badges.get("clean.txt"), undefined); // not unmerged
+  assert.equal(badges.get("src/both modified.py"), ""); // path-with-space + UU
+  assert.equal(badges.get("added.py"), "added by both");
+  assert.equal(badges.get("gone.py"), "deleted by both");
+  assert.equal(badges.get("ours-kept.py"), "deleted by them");
+  assert.equal(badges.get("theirs-kept.py"), "deleted by us");
+});
+
+test("conflictBadges: a normal both-modified conflict gets NO badge", async () => {
+  // The reported bug: a.txt/b.txt are plain both-modified conflicts that used
+  // to render "(deleted on both)".
+  const root = makeConflictedRepo();
+  try {
+    const badges = await conflictBadges(root);
+    assert.equal(badges.get("a.txt"), "");
+    assert.equal(badges.get("b.txt"), "");
+  } finally {
+    cleanup(root);
+  }
+});
+
+test("conflictBadges: add/add is 'added by both'", async () => {
+  const root = makeConflictedRepo();
+  try {
+    git(root, "merge", "--abort");
+    git(root, "checkout", "-b", "adder");
+    write(root, "new.txt", "from adder\n");
+    git(root, "add", "new.txt");
+    git(root, "commit", "-m", "adder adds new.txt");
+    git(root, "checkout", "main");
+    write(root, "new.txt", "from main\n");
+    git(root, "add", "new.txt");
+    git(root, "commit", "-m", "main adds new.txt");
+    try {
+      git(root, "merge", "adder");
+      assert.fail("merge unexpectedly succeeded — fixture must conflict");
+    } catch {
+      // add/add conflict expected
+    }
+    const badges = await conflictBadges(root);
+    assert.equal(badges.get("new.txt"), "added by both");
   } finally {
     cleanup(root);
   }

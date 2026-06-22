@@ -87,10 +87,13 @@ export async function getConflictVersions(
     oursLabel = repo.state.HEAD?.name
       ? `Your version (${repo.state.HEAD.name})`
       : "Your version";
+    // Stage refs are `:1`/`:2`/`:3` (NO trailing colon): vscode.git's show()
+    // builds the object as `${ref}:${path}`, so `:2:` would become `:2::path`
+    // and every read would throw — silently dropping us to the marker fallback.
     [base, ours, theirs] = await Promise.all([
-      showStage(repo, ":1:", fileName),
-      showStage(repo, ":2:", fileName),
-      showStage(repo, ":3:", fileName),
+      showStage(repo, ":1", fileName),
+      showStage(repo, ":2", fileName),
+      showStage(repo, ":3", fileName),
     ]);
     if (ours !== undefined || theirs !== undefined) {
       source = "git-stages";

@@ -8,6 +8,7 @@ import * as path from "path";
 import type { Repository } from "./git/git";
 import {
   acceptSide,
+  conflictBadges,
   detectOperation,
   describeIncoming,
   restoreConflict,
@@ -39,17 +40,6 @@ interface FileInfo {
   rel: string;
   badge: string;
 }
-
-// vscode.git Status values for special conflict kinds. The Status enum lives
-// in a .d.ts, so its members cannot be imported at runtime.
-const STATUS_BADGE: Record<number, string> = {
-  12: "added by us",
-  13: "added by them",
-  14: "deleted by us",
-  15: "deleted by them",
-  16: "added by both",
-  17: "deleted by both",
-};
 
 type PanelMessage =
   | { type: "accept"; side: "ours" | "theirs"; uri: string }
@@ -143,20 +133,35 @@ export class ConflictsPanel {
     if (this.disposed) {
       return;
     }
+    // Badges come from git's own porcelain XY codes, fetched once only when a
+    // new conflict appears (they never change for a file mid-merge). Degrades
+    // to no badge if the call fails — a missing badge beats a wrong one.
+    const hasNewFile = this.repo.state.mergeChanges.some(
+      (change) => !this.files.has(change.uri.toString()),
+    );
+    let badges: Map<string, string> | undefined;
+    if (hasNewFile) {
+      badges = await conflictBadges(this.root).catch(() => undefined);
+      if (this.disposed) {
+        return; // disposed while awaiting git
+      }
+    }
+
     const pendingNow = new Set<string>();
     for (const change of this.repo.state.mergeChanges) {
       const key = change.uri.toString();
       pendingNow.add(key);
       if (!this.files.has(key)) {
+        // Forward slashes even on Windows: display-only, the webview splits
+        // dir/name on "/", and it matches git's porcelain path separator.
+        const rel = path
+          .relative(this.root, change.uri.fsPath)
+          .split(path.sep)
+          .join("/");
         this.files.set(key, {
           fsPath: change.uri.fsPath,
-          // Forward slashes even on Windows: display-only, and the webview
-          // splits dir/name on "/".
-          rel: path
-            .relative(this.root, change.uri.fsPath)
-            .split(path.sep)
-            .join("/"),
-          badge: STATUS_BADGE[change.status] ?? "",
+          rel,
+          badge: badges?.get(rel) ?? "",
         });
       }
     }
