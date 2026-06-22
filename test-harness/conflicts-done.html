@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta http-equiv="Content-Security-Policy"
-        content="default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-zVJxHe6tXswBav5Edq1SOUSjynbtZWco'" />
+        content="default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-0C4Db9JyQkaFYlOErntLyul538cLDNXb'" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Conflicts</title>
   <style>
@@ -89,10 +89,11 @@
       font-weight: 600;
       color: var(--vscode-foreground);
       min-width: 0;
-      max-width: 42ch;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
+      /* Always show the whole name: one line when it fits (the common case
+       * now the branches have their own full-width row), and if the panel is
+       * too narrow, reflow at the path separators (a <wbr> is injected after
+       * each "/") instead of truncating. */
+      overflow-wrap: anywhere;
     }
     .branch-yours {
       color: var(--jb-yours);
@@ -467,13 +468,13 @@
       <button class="primary" id="close" hidden>Close</button>
     </footer>
   </div>
-  <script nonce="zVJxHe6tXswBav5Edq1SOUSjynbtZWco">
+  <script nonce="0C4Db9JyQkaFYlOErntLyul538cLDNXb">
   globalThis.acquireVsCodeApi = () => ({
     postMessage: (m) => { (window.__sent = window.__sent || []).push(m); },
     getState: () => undefined,
     setState: () => {},
   });
-</script><script nonce="zVJxHe6tXswBav5Edq1SOUSjynbtZWco">
+</script><script nonce="0C4Db9JyQkaFYlOErntLyul538cLDNXb">
     const vscode = acquireVsCodeApi();
     const HOLD_MS = 750;
     const el = (id) => document.getElementById(id);
@@ -494,6 +495,18 @@
 
     function cap(word) { return word.charAt(0).toUpperCase() + word.slice(1); }
 
+    // Render a branch name in full, with a break opportunity after each "/" so
+    // a long name reflows at path boundaries (only if too narrow for one line)
+    // rather than being cut off. Escapes HTML; the full name goes in the title.
+    function setBranch(id, name) {
+      const esc = name
+        .split("&").join("&amp;")
+        .split("<").join("&lt;")
+        .split(">").join("&gt;");
+      el(id).innerHTML = esc.split("/").join("/<wbr>");
+      el(id).title = name;
+    }
+
     function render(state) {
       const files = state.files;
       const pending = files.filter((f) => f.status !== "resolved").length;
@@ -509,12 +522,8 @@
       const hasBranches = state.yoursName || state.theirsName;
       el("branches").hidden = !hasBranches;
       if (hasBranches) {
-        const yours = state.yoursName || "HEAD";
-        const theirs = state.theirsName || "incoming";
-        el("yours").textContent = yours;
-        el("yours").title = yours; // full name on hover when truncated
-        el("theirs").textContent = theirs;
-        el("theirs").title = theirs;
+        setBranch("yours", state.yoursName || "HEAD");
+        setBranch("theirs", state.theirsName || "incoming");
       }
 
       el("progressRow").hidden = state.total === 0;
@@ -679,7 +688,7 @@
       return btn;
     }
   </script>
-<script nonce="zVJxHe6tXswBav5Edq1SOUSjynbtZWco">
+<script nonce="0C4Db9JyQkaFYlOErntLyul538cLDNXb">
   window.postMessage({"type":"state","operation":"merge","yoursName":"master","theirsName":"feature","busy":false,"total":5,"resolved":5,"files":[{"uri":"file:///r/config.json","rel":"config.json","badge":"","status":"resolved","choice":"theirs"},{"uri":"file:///r/src/api.ts","rel":"src/api.ts","badge":"deleted by them","status":"resolved","choice":"theirs"},{"uri":"file:///r/src/cache.ts","rel":"src/cache.ts","badge":"","status":"resolved","choice":"yours"},{"uri":"file:///r/src/userService.js","rel":"src/userService.js","badge":"","status":"resolved","choice":"yours"},{"uri":"file:///r/src/util.ts","rel":"src/util.ts","badge":"","status":"resolved","choice":"merged"}]}, "*");
 </script></body>
 </html>

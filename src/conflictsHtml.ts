@@ -98,10 +98,11 @@ export function renderConflictsHtml(): string {
       font-weight: 600;
       color: var(--vscode-foreground);
       min-width: 0;
-      max-width: 42ch;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
+      /* Always show the whole name: one line when it fits (the common case
+       * now the branches have their own full-width row), and if the panel is
+       * too narrow, reflow at the path separators (a <wbr> is injected after
+       * each "/") instead of truncating. */
+      overflow-wrap: anywhere;
     }
     .branch-yours {
       color: var(--jb-yours);
@@ -497,6 +498,18 @@ export function renderConflictsHtml(): string {
 
     function cap(word) { return word.charAt(0).toUpperCase() + word.slice(1); }
 
+    // Render a branch name in full, with a break opportunity after each "/" so
+    // a long name reflows at path boundaries (only if too narrow for one line)
+    // rather than being cut off. Escapes HTML; the full name goes in the title.
+    function setBranch(id, name) {
+      const esc = name
+        .split("&").join("&amp;")
+        .split("<").join("&lt;")
+        .split(">").join("&gt;");
+      el(id).innerHTML = esc.split("/").join("/<wbr>");
+      el(id).title = name;
+    }
+
     function render(state) {
       const files = state.files;
       const pending = files.filter((f) => f.status !== "resolved").length;
@@ -512,12 +525,8 @@ export function renderConflictsHtml(): string {
       const hasBranches = state.yoursName || state.theirsName;
       el("branches").hidden = !hasBranches;
       if (hasBranches) {
-        const yours = state.yoursName || "HEAD";
-        const theirs = state.theirsName || "incoming";
-        el("yours").textContent = yours;
-        el("yours").title = yours; // full name on hover when truncated
-        el("theirs").textContent = theirs;
-        el("theirs").title = theirs;
+        setBranch("yours", state.yoursName || "HEAD");
+        setBranch("theirs", state.theirsName || "incoming");
       }
 
       el("progressRow").hidden = state.total === 0;
