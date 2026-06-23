@@ -500,12 +500,19 @@ export function renderConflictsHtml(): string {
     // a long name reflows at path boundaries (only if too narrow for one line)
     // rather than being cut off. Escapes HTML; the full name goes in the title.
     function setBranch(id, name) {
-      const esc = name
-        .split("&").join("&amp;")
-        .split("<").join("&lt;")
-        .split(">").join("&gt;");
-      el(id).innerHTML = esc.split("/").join("/<wbr>");
-      el(id).title = name;
+      const node = el(id);
+      node.textContent = "";
+      // Insert a <wbr> after each "/" so a long branch name can reflow at path
+      // boundaries. Built from DOM nodes (not innerHTML) so the name is always
+      // treated as text and can never inject markup.
+      name.split("/").forEach((segment, i) => {
+        if (i > 0) {
+          node.appendChild(document.createTextNode("/"));
+          node.appendChild(document.createElement("wbr"));
+        }
+        if (segment) node.appendChild(document.createTextNode(segment));
+      });
+      node.title = name;
     }
 
     function render(state) {

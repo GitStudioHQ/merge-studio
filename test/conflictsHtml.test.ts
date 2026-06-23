@@ -15,7 +15,7 @@ test("every script tag carries the CSP nonce", () => {
   const html = renderConflictsHtml();
   const nonce = /script-src 'nonce-([^']+)'/.exec(html)?.[1];
   assert.ok(nonce, "CSP nonce present");
-  const scripts = html.match(/<script\b[^>]*>/g) ?? [];
+  const scripts = html.match(/<script\b[^>]*>/gi) ?? [];
   assert.ok(scripts.length > 0, "has script tags");
   for (const tag of scripts) {
     assert.ok(
@@ -23,6 +23,18 @@ test("every script tag carries the CSP nonce", () => {
       `script tag missing nonce: ${tag}`,
     );
   }
+});
+
+test("branch names are built as text nodes, never via innerHTML", () => {
+  // setBranch renders attacker-influenceable git branch names (HEAD / incoming).
+  // It must route them through DOM text nodes, never an HTML sink, so a name
+  // can't inject markup. Guards against a regression to `el(id).innerHTML = …`.
+  const html = renderConflictsHtml();
+  const body = /function setBranch\([\s\S]*?node\.title = name;/.exec(html)?.[0];
+  assert.ok(body, "setBranch present in rendered document");
+  assert.doesNotMatch(body!, /\.innerHTML\s*=/, "setBranch must not assign innerHTML");
+  assert.match(body!, /createTextNode/, "branch name built from text nodes");
+  assert.match(body!, /createElement\("wbr"\)/, "<wbr> inserted as an element");
 });
 
 test("nonces differ between renders", () => {
