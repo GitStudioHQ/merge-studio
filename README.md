@@ -1,7 +1,7 @@
 <h1 align="center">Merge Studio</h1>
 
 <p align="center">
-  <b>A beautiful, powerful way to resolve merge conflicts — in VS Code, Cursor, and Open VSX.</b>
+  <b>A beautiful, powerful way to resolve merge conflicts — in VS Code and Cursor.</b>
 </p>
 
 <p align="center">

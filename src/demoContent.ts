@@ -6,7 +6,7 @@
 
 /**
  * Sample side-by-side diff: HEAD vs working tree of an auth middleware.
- * Shows modified lines (intra-line highlights) and a multi-line inserted block.
+ * Shows modified lines (intra-line highlights) and a rewritten block.
  */
 export const DEMO_DIFF = {
   fileName: "authorizeRequest.ts",
@@ -31,8 +31,8 @@ export async function authorizeRequest(
 
   const claims = await verifyJwt(token);
   const session = await findSession(claims.sub);
-  if (!session) {
-    res.status(401).json({ error: "unknown session" });
+  if (!session || session.expiresAt < Date.now()) {
+    res.status(401).json({ error: "session expired" });
     return;
   }
 
@@ -60,15 +60,7 @@ export async function authorizeRequest(
 
   const claims = await verifyJwt(token);
   const session = await findSession(claims.sub);
-  if (!session) {
-    res.status(401).json({ error: "unknown session" });
-    return;
-  }
-
-  // Bind the session to the device fingerprint, then slide the
-  // expiry window forward on every authorized request.
-  const fingerprint = deviceFingerprint(req);
-  if (session.fingerprint !== fingerprint) {
+  if (!session || session.fingerprint !== deviceFingerprint(req)) {
     res.status(401).json({ error: "device mismatch" });
     return;
   }
@@ -81,9 +73,11 @@ export async function authorizeRequest(
 } as const;
 
 /**
- * Sample 3-way merge: two real, multi-line conflicts (one branch hardens the
- * session by binding it to the device, the other adds rate-limiting + audit
- * logging) plus one auto-resolvable change (the TTL, touched only on `ours`).
+ * Sample 3-way merge: the session-validation block was rewritten on BOTH
+ * branches (ours binds the session to the device; theirs adds rate-limiting +
+ * audit logging) — a true modify/modify conflict where every side overwrites
+ * the same lines — plus a second conflict in the imports and one auto-resolvable
+ * change (the TTL, touched only on `ours`).
  */
 export const DEMO_MERGE = {
   fileName: "authorizeRequest.ts",
@@ -121,26 +115,23 @@ export async function authorizeRequest(
 
   const claims = await verifyJwt(token);
   const session = await findSession(claims.sub);
-  if (!session) {
-    res.status(401).json({ error: "unknown session" });
-    return;
-  }
-
 <<<<<<< ours
-  // Bind the session to the device fingerprint, then slide the
-  // expiry window forward on every authorized request.
-  const fingerprint = deviceFingerprint(req);
-  if (session.fingerprint !== fingerprint) {
+  if (!session || session.fingerprint !== deviceFingerprint(req)) {
     res.status(401).json({ error: "device mismatch" });
     return;
   }
   await touchSession(session.id, Date.now() + SESSION_TTL_MS);
 ||||||| base
+  if (!session || session.expiresAt < Date.now()) {
+    res.status(401).json({ error: "session expired" });
+    return;
+  }
 =======
-  // Enforce a per-user rate limit and write an audit entry so the
-  // security team can trace every access after the fact.
-  const allowed = await rateLimiter.take(session.userId);
-  if (!allowed) {
+  if (!session || session.revoked) {
+    res.status(401).json({ error: "session revoked" });
+    return;
+  }
+  if (!(await rateLimiter.take(session.userId))) {
     res.status(429).json({ error: "rate limited" });
     return;
   }
