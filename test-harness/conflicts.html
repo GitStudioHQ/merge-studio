@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta http-equiv="Content-Security-Policy"
-        content="default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-Yogt4nR8jg07hbcLb5rUKlTdN0QmTeZx'" />
+        content="default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-u5K28OeeQrWW9A4stNyxqdlBXTzr3SBb'" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Conflicts</title>
   <style>
@@ -466,13 +466,13 @@
       <button class="primary" id="close" hidden>Close</button>
     </footer>
   </div>
-  <script nonce="Yogt4nR8jg07hbcLb5rUKlTdN0QmTeZx">
+  <script nonce="u5K28OeeQrWW9A4stNyxqdlBXTzr3SBb">
   globalThis.acquireVsCodeApi = () => ({
     postMessage: (m) => { (window.__sent = window.__sent || []).push(m); },
     getState: () => undefined,
     setState: () => {},
   });
-</script><script nonce="Yogt4nR8jg07hbcLb5rUKlTdN0QmTeZx">
+</script><script nonce="u5K28OeeQrWW9A4stNyxqdlBXTzr3SBb">
     const vscode = acquireVsCodeApi();
     const HOLD_MS = 750;
     const el = (id) => document.getElementById(id);
@@ -497,12 +497,19 @@
     // a long name reflows at path boundaries (only if too narrow for one line)
     // rather than being cut off. Escapes HTML; the full name goes in the title.
     function setBranch(id, name) {
-      const esc = name
-        .split("&").join("&amp;")
-        .split("<").join("&lt;")
-        .split(">").join("&gt;");
-      el(id).innerHTML = esc.split("/").join("/<wbr>");
-      el(id).title = name;
+      const node = el(id);
+      node.textContent = "";
+      // Insert a <wbr> after each "/" so a long branch name can reflow at path
+      // boundaries. Built from DOM nodes (not innerHTML) so the name is always
+      // treated as text and can never inject markup.
+      name.split("/").forEach((segment, i) => {
+        if (i > 0) {
+          node.appendChild(document.createTextNode("/"));
+          node.appendChild(document.createElement("wbr"));
+        }
+        if (segment) node.appendChild(document.createTextNode(segment));
+      });
+      node.title = name;
     }
 
     function render(state) {
@@ -686,7 +693,7 @@
       return btn;
     }
   </script>
-<script nonce="Yogt4nR8jg07hbcLb5rUKlTdN0QmTeZx">
+<script nonce="u5K28OeeQrWW9A4stNyxqdlBXTzr3SBb">
   window.postMessage({"type":"state","operation":"merge","yoursName":"master","theirsName":"feature","busy":false,"total":5,"resolved":3,"files":[{"uri":"file:///r/config.json","rel":"config.json","badge":"","status":"resolved","choice":"theirs"},{"uri":"file:///r/src/api.ts","rel":"src/api.ts","badge":"deleted by them","status":"pending","choice":null},{"uri":"file:///r/src/cache.ts","rel":"src/cache.ts","badge":"","status":"busy","choice":null},{"uri":"file:///r/src/userService.js","rel":"src/userService.js","badge":"","status":"resolved","choice":"yours"},{"uri":"file:///r/src/util.ts","rel":"src/util.ts","badge":"","status":"resolved","choice":"merged"}]}, "*");
 </script></body>
 </html>

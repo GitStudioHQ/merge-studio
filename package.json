@@ -321,11 +321,14 @@
   "devDependencies": {
     "@types/node": "^20.19.42",
     "@types/vscode": "1.74.0",
-    "esbuild": "^0.28.0",
+    "esbuild": "^0.28.1",
     "monaco-editor": "^0.55.1",
     "tsx": "^4.22.4",
     "typescript": "^6.0.3",
     "vscode-diff": "^3.0.1"
+  },
+  "overrides": {
+    "dompurify": "3.4.11"
   },
   "qna": "https://github.com/GitStudioHQ/merge-studio/issues",
   "pricing": "Free",
