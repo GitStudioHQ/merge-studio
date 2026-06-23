@@ -22,17 +22,20 @@ const shim = `<script nonce="${nonce}">
 const state = {
   type: "state",
   operation: "merge",
-  yoursName: "master",
-  theirsName: "feature",
+  yoursName: "feature/auth-hardening",
+  theirsName: "main",
   busy: false,
-  total: 5,
+  total: 8,
   resolved: 3,
   files: [
-    { uri: "file:///r/config.json", rel: "config.json", badge: "", status: "resolved", choice: "theirs" },
-    { uri: "file:///r/src/api.ts", rel: "src/api.ts", badge: "deleted by them", status: "pending", choice: null },
-    { uri: "file:///r/src/cache.ts", rel: "src/cache.ts", badge: "", status: "busy", choice: null },
-    { uri: "file:///r/src/userService.js", rel: "src/userService.js", badge: "", status: "resolved", choice: "yours" },
-    { uri: "file:///r/src/util.ts", rel: "src/util.ts", badge: "", status: "resolved", choice: "merged" },
+    { uri: "file:///r/src/auth/authorizeRequest.ts", rel: "src/auth/authorizeRequest.ts", badge: "", status: "pending", choice: null },
+    { uri: "file:///r/src/auth/session.ts", rel: "src/auth/session.ts", badge: "", status: "pending", choice: null },
+    { uri: "file:///r/src/server/rateLimit.ts", rel: "src/server/rateLimit.ts", badge: "added by both", status: "pending", choice: null },
+    { uri: "file:///r/src/api/routes.ts", rel: "src/api/routes.ts", badge: "", status: "busy", choice: null },
+    { uri: "file:///r/src/db/migrations/0042_audit.sql", rel: "src/db/migrations/0042_audit.sql", badge: "deleted by them", status: "pending", choice: null },
+    { uri: "file:///r/src/config/flags.ts", rel: "src/config/flags.ts", badge: "", status: "resolved", choice: "theirs" },
+    { uri: "file:///r/package.json", rel: "package.json", badge: "", status: "resolved", choice: "merged" },
+    { uri: "file:///r/README.md", rel: "README.md", badge: "", status: "resolved", choice: "yours" },
   ],
 };
 
@@ -58,7 +61,7 @@ writeFileSync(join(import.meta.dirname, "conflicts.html"), html);
 
 const doneState = {
   ...state,
-  resolved: 5,
+  resolved: 8,
   files: state.files.map((f) =>
     f.status === "resolved" ? f : { ...f, status: "resolved", choice: f.rel.includes("api") ? "theirs" : "yours" },
   ),
