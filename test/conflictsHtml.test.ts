@@ -30,11 +30,14 @@ test("branch names are built as text nodes, never via innerHTML", () => {
   // It must route them through DOM text nodes, never an HTML sink, so a name
   // can't inject markup. Guards against a regression to `el(id).innerHTML = …`.
   const html = renderConflictsHtml();
-  const body = /function setBranch\([\s\S]*?node\.title = name;/.exec(html)?.[0];
+  // Capture the whole setBranch function — from its declaration up to the next
+  // function in the rendered script — so the guard holds regardless of how the
+  // body is restructured internally. assert.ok narrows `body` to a string.
+  const body = /function setBranch\b[\s\S]*?(?=\n\s*function )/.exec(html)?.[0];
   assert.ok(body, "setBranch present in rendered document");
-  assert.doesNotMatch(body!, /\.innerHTML\s*=/, "setBranch must not assign innerHTML");
-  assert.match(body!, /createTextNode/, "branch name built from text nodes");
-  assert.match(body!, /createElement\("wbr"\)/, "<wbr> inserted as an element");
+  assert.doesNotMatch(body, /\.innerHTML\s*=/, "setBranch must not assign innerHTML");
+  assert.match(body, /createTextNode/, "branch name built from text nodes");
+  assert.match(body, /createElement\("wbr"\)/, "<wbr> inserted as an element");
 });
 
 test("nonces differ between renders", () => {
