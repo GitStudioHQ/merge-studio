@@ -165,11 +165,12 @@
         <!-- left->center modify ribbon -->
         <path d="M652 230 C 660 230, 660 230, 668 230 L668 252 C660 252,660 252,652 252 Z" fill="url(#ribbonV)" opacity="0.9"/>
 
-        <!-- gutter accept chevrons (apply arrows) -->
-        <g fill="#8E82F2">
-          <path d="M656 122 l6 6 l-6 6 z"/>
-          <path d="M948 183 l6 5 l-6 5 z"/>
-          <path d="M656 236 l6 6 l-6 6 z"/>
+        <!-- gutter accept chevrons (apply arrows): left gutter points right,
+             right gutter points left — both converging on the result. -->
+        <g fill="#F4F6FA">
+          <path d="M655 121 l7 7 l-7 7 z"/>
+          <path d="M954 181 l-7 7 l7 7 z"/>
+          <path d="M655 235 l7 7 l-7 7 z"/>
         </g>
 
         <!-- subtle line-number ticks in gutters -->

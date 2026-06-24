@@ -176,7 +176,7 @@
           {
             "id": "mergeStudio.handoff",
             "title": "Optional: hand off to JetBrains",
-            "description": "Have IntelliJ, WebStorm, or PyCharm installed? You can hand any merge or diff off to the real IDE for a 1:1 native experience. Entirely optional — everything above works without it.",
+            "description": "Merge Studio is the real merge editor right here — but if you still prefer your JetBrains window for a particular merge, you can hand any merge or diff off to it. A convenience, not a crutch — entirely optional, and everything above works without it.",
             "media": {
               "image": "media/screenshots/merge-editor.png",
               "altText": "The three-pane merge editor — Merge Studio can hand any merge off to an installed JetBrains IDE."

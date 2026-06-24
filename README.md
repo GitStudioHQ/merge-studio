@@ -16,9 +16,11 @@
   <img src="media/banner.png" alt="Merge Studio — a beautiful three-pane merge editor, built into VS Code">
 </p>
 
-A merge conflict shouldn't mean scrolling through `<<<<<<<` markers in a flat text buffer — or alt-tabbing to another app to make sense of it. **Merge Studio gives VS Code a merge experience worth reaching for:** a three-pane editor where **yours**, the **result**, and **theirs** sit side by side, joined by color ribbons and one-click accept arrows; a conflicts dashboard that drives the whole session; full undo history; and a precise side-by-side diff. It's fast, keyboard-driven, and never leaves your editor.
+VS Code and Cursor never had a real merge editor. For all their polish, a conflict was still a flat buffer to scroll and hand-edit, or an alt-tab to some other app just to see both sides at once — one stray keystroke from quietly shipping the wrong line. So I built the one the platform was missing.
 
-It runs in VS Code, Cursor, and any editor on the [Open VSX Registry](https://open-vsx.org/extension/gitstudio/merge-studio) — and if you already use a JetBrains IDE, it can hand the merge off to the real thing.
+**Merge Studio is that merge editor.** Three panes — **yours**, the **result** you commit, and **theirs** — sit side by side, joined by curved color ribbons and one-click accept arrows. Edit the result live and the alignment re-flows as you type. A conflicts dashboard takes over the moment a merge, rebase, cherry-pick, or revert goes sideways and drives the whole session. Full named undo history, a precise side-by-side diff, and it's keyboard-driven end to end. Fast, and it never makes you leave your editor.
+
+Runs in VS Code, Cursor, and any editor on the [Open VSX Registry](https://open-vsx.org/extension/gitstudio/merge-studio) — the real merge editor, native to the platform you already work in.
 
 ---
 
@@ -58,9 +60,11 @@ The moment a merge, rebase, cherry-pick, or revert produces conflicts, the **Con
 - Live re-diff as you edit the right pane
 - The same ribbons, colors, and navigation as the merge editor
 
-## Already in a JetBrains IDE? Hand it off
+## Prefer a JetBrains IDE? Hand it off
 
-Merge Studio's three-pane editor is inspired by the merge tool in IntelliJ IDEA, WebStorm, and PyCharm — and if you have one installed, you can use the real thing without leaving VS Code. Set `jbMerge.conflictResolver: "jetbrains"` (or `jbMerge.diffTool: "jetbrains"`) and Merge Studio shells out to the actual IDE window, auto-detecting it from your `PATH` or `/Applications`. Supports WebStorm, PyCharm, IntelliJ IDEA, PhpStorm, GoLand, CLion, Rider, RubyMine, and DataGrip. Entirely optional — everything above works on its own.
+Merge Studio is the real merge editor for VS Code and Cursor — you no longer need to open a JetBrains IDE to resolve a conflict properly. If you've used the merge tool in IntelliJ IDEA, WebStorm, or PyCharm, the three-pane layout will feel familiar by design; that's deliberate, because it's the experience that was missing here.
+
+For the times you still prefer to finish a merge in your JetBrains window, the hand-off is there — a convenience, not a crutch. Set `jbMerge.conflictResolver: "jetbrains"` (or `jbMerge.diffTool: "jetbrains"`) and Merge Studio shells out to the installed IDE, auto-detecting it from your `PATH` or `/Applications`. Supports WebStorm, PyCharm, IntelliJ IDEA, PhpStorm, GoLand, CLion, Rider, RubyMine, and DataGrip. Entirely optional — everything above stands on its own.
 
 ## Install
 
