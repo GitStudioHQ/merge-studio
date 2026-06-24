@@ -1,8 +1,8 @@
 {
   "name": "merge-studio",
-  "displayName": "Merge Studio — JetBrains-Style Merge & Diff",
-  "description": "Resolve merge conflicts like in JetBrains IDEs (IntelliJ, PyCharm, WebStorm): a 3-way merge editor with ribbons, undo history and a conflicts dialog, plus side-by-side diff — for VS Code and Cursor.",
-  "version": "0.3.3",
+  "displayName": "Merge Studio — 3-Way Merge & Conflict Resolver",
+  "description": "A beautiful 3-way merge conflict editor for VS Code & Cursor: resolve conflicts with color ribbons and one-click accept arrows, a conflicts dashboard, undo history, and a precise side-by-side diff — with optional one-click hand-off to an installed JetBrains IDE.",
+  "version": "0.3.4",
   "publisher": "gitstudio",
   "license": "MIT",
   "icon": "media/icon.png",
@@ -29,14 +29,25 @@
     "Other"
   ],
   "keywords": [
-    "merge",
     "merge conflict",
+    "merge conflict resolver",
+    "conflict resolver",
+    "resolve conflicts",
+    "merge",
     "merge editor",
     "3-way merge",
     "three-way merge",
-    "conflict resolver",
+    "merge tool",
+    "mergetool",
     "diff",
+    "diff tool",
     "git",
+    "git merge",
+    "rebase",
+    "cherry-pick",
+    "vscode",
+    "cursor",
+    "windsurf",
     "jetbrains",
     "intellij",
     "pycharm",
@@ -112,12 +123,12 @@
       {
         "id": "mergeStudio.gettingStarted",
         "title": "Get Started with Merge Studio",
-        "description": "Resolve conflicts and compare files in a JetBrains-style three-pane editor, embedded in VS Code.",
+        "description": "Resolve merge conflicts and compare files in a beautiful three-pane editor, built into VS Code.",
         "steps": [
           {
             "id": "mergeStudio.welcome",
             "title": "Meet Merge Studio",
-            "description": "**A JetBrains-style three-pane merge editor, embedded in VS Code.** Left is yours, center is the result you commit, right is theirs — wired with color ribbons and accept arrows. Includes a precise side-by-side diff. No external app required.",
+            "description": "**A beautiful three-pane merge editor, built into VS Code.** Left is yours, center is the result you commit, right is theirs — wired with color ribbons and accept arrows. Includes a precise side-by-side diff. No external app required.",
             "media": {
               "image": "media/banner.png",
               "altText": "Merge Studio — the embedded three-pane merge editor with connecting color ribbons."
@@ -141,7 +152,7 @@
           {
             "id": "mergeStudio.tryDiff",
             "title": "Try the side-by-side diff",
-            "description": "**Open a sample change in the side-by-side diff.** Panes align line for line, with intra-line highlights on exactly what moved — the same precise diff you'd get from a JetBrains IDE.\n\n[Open sample diff](command:jbMerge.openDemoDiff)",
+            "description": "**Open a sample change in the side-by-side diff.** Panes align line for line, with intra-line highlights on exactly what moved.\n\n[Open sample diff](command:jbMerge.openDemoDiff)",
             "media": {
               "image": "media/screenshots/diff-view.png",
               "altText": "Side-by-side diff with line-aligned panes and intra-line change highlights."
@@ -164,8 +175,8 @@
           },
           {
             "id": "mergeStudio.handoff",
-            "title": "Optional: hand off to JetBrains",
-            "description": "Have IntelliJ, WebStorm, or PyCharm installed? You can hand any merge or diff off to the real IDE for a 1:1 native experience. Entirely optional — everything above works without it.",
+            "title": "Optional: open in a JetBrains IDE",
+            "description": "Prefer a JetBrains IDE? Set `jbMerge.conflictResolver` to `jetbrains` and Merge Studio opens conflicts directly in your installed IntelliJ, WebStorm, PyCharm, or other JetBrains IDE.",
             "media": {
               "image": "media/screenshots/merge-editor.png",
               "altText": "The three-pane merge editor — Merge Studio can hand any merge off to an installed JetBrains IDE."

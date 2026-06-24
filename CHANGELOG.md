@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.3.4 — 2026-06-24
+
+Security hardening and a full README/onboarding refresh — no functional changes to the editor.
+
+- **Patched every open Dependabot and code-scanning alert.** Forced the bundled `dompurify` to 3.4.11 and added an esbuild redirect so monaco's vendored copy is swapped for the patched build at bundle time; bumped the dev-only `esbuild` to `^0.28.1`. `npm audit` is clean and there are no open security alerts.
+- **Fixed an XSS sink in the Conflicts dialog.** The branch label was built with `innerHTML`, so a crafted git branch name could inject markup; it's now built from DOM text nodes, with a regression test pinning the no-`innerHTML` invariant. The rendered output is byte-for-byte identical to before.
+- **Added a security policy.** A root `SECURITY.md` documents supported versions, private vulnerability reporting, and the threat model.
+- **Reworked the README, badges, screenshots, and onboarding.** Repositioned around "the merge editor for VS Code and Cursor," refreshed the badge row (versions, build, no vulnerabilities, support), added new screenshots of larger conflicts, and rebuilt the Get Started sample as a real multi-pane conflict.
+
 ## 0.3.3 — 2026-06-22
 
 Bug-fix release for conflict resolution — the previous build mishandled real-world conflicts.
