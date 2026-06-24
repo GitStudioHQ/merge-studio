@@ -19,7 +19,7 @@
 
 VS Code and Cursor never had a real merge editor. **So I built it.**
 
-**Merge Studio is that merge editor.** Your version and theirs sit side by side, with the result you'll commit in the middle. Take a side with one click, or edit the result yourself — without ever leaving your editor.
+**Merge Studio is that merge editor.** Three panes: **yours** on the left, the **result** you'll commit in the middle, and **theirs** on the right. Take a side with one click, or edit the result yourself — without ever leaving your editor.
 
 And you do it without fear. **No change is irreversible** — undo anything, or roll a file back to its original conflict. **No conflict is missed** — every one is tracked until it's settled. **Everything's in plain sight** — no markers to untangle, no guessing what you're about to commit.
 
