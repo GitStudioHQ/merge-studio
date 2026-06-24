@@ -2,7 +2,7 @@
   "name": "merge-studio",
   "displayName": "Merge Studio — 3-Way Merge & Conflict Resolver",
   "description": "A beautiful 3-way merge conflict editor for VS Code & Cursor: resolve conflicts with color ribbons and one-click accept arrows, a conflicts dashboard, undo history, and a precise side-by-side diff — with optional one-click hand-off to an installed JetBrains IDE.",
-  "version": "0.3.3",
+  "version": "0.3.4",
   "publisher": "gitstudio",
   "license": "MIT",
   "icon": "media/icon.png",

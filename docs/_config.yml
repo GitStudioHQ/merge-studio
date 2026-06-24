@@ -1,6 +1,6 @@
 title: Merge Studio
 description: >-
-  JetBrains-style merge & diff for VS Code and Cursor — a 3-way merge editor
-  with ribbons, undo history and a conflicts dialog, plus side-by-side diff.
+  The merge editor for VS Code and Cursor — a real three-pane merge editor with
+  color ribbons, undo history and a conflicts dashboard, plus a side-by-side diff.
 theme: jekyll-theme-primer
 show_downloads: false
