@@ -1,7 +1,8 @@
 <h1 align="center">Merge Studio</h1>
 
 <p align="center">
-  <b>The merge editor for VS Code and Cursor.</b>
+  <b>The merge editor for VS Code and Cursor.</b><br>
+  <b>Resolve conflicts with confidence.</b>
 </p>
 
 <p align="center">
@@ -19,6 +20,8 @@
 VS Code and Cursor never had a real merge editor. For all their polish, a conflict was still a flat buffer to scroll and hand-edit, or an alt-tab to some other app just to see both sides at once — one stray keystroke from quietly shipping the wrong line. So I built the one the platform was missing.
 
 **Merge Studio is that merge editor.** Three panes — **yours**, the **result** you commit, and **theirs** — sit side by side, joined by curved color ribbons and one-click accept arrows. Edit the result live and the alignment re-flows as you type. A conflicts dashboard takes over the moment a merge, rebase, cherry-pick, or revert goes sideways and drives the whole session. Full named undo history, a precise side-by-side diff, and it's keyboard-driven end to end. Fast, and it never makes you leave your editor.
+
+And you make every call without fear. **No change is irreversible** — undo any step, hold to roll a resolved file back to its original conflict, or abort the merge and land exactly where you started. **No conflict slips by** — the dashboard tracks every affected file, and the status bar keeps watch until the last one is settled. **Nothing hides in a wall of markers** — every change is laid out in plain sight. Decide, see exactly what you're committing, and move on.
 
 Runs in VS Code, Cursor, and any editor on the [Open VSX Registry](https://open-vsx.org/extension/gitstudio/merge-studio) — the real merge editor, native to the platform you already work in.
 
