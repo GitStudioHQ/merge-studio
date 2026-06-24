@@ -6,11 +6,13 @@
 </p>
 
 <p align="center">
-  <a href="https://marketplace.visualstudio.com/items?itemName=gitstudio.merge-studio"><img src="https://vsmarketplacebadges.dev/version-short/gitstudio.merge-studio.png?style=flat&label=VS%20Marketplace&logo=visualstudiocode&logoColor=white&color=6B5BE6" alt="VS Marketplace version"></a>
-  <a href="https://marketplace.visualstudio.com/items?itemName=gitstudio.merge-studio"><img src="https://vsmarketplacebadges.dev/installs-short/gitstudio.merge-studio.png?style=flat&label=Installs&logo=visualstudiocode&logoColor=white&color=6B5BE6" alt="VS Marketplace installs"></a>
+  <a href="https://marketplace.visualstudio.com/items?itemName=gitstudio.merge-studio"><img src="https://vsmarketplacebadges.dev/version-short/gitstudio.merge-studio.svg?style=flat&label=VS%20Marketplace&logo=visualstudiocode&logoColor=white&color=6B5BE6" alt="VS Marketplace version"></a>
   <a href="https://open-vsx.org/extension/gitstudio/merge-studio"><img src="https://img.shields.io/open-vsx/v/gitstudio/merge-studio?label=Open%20VSX&logo=eclipseide&logoColor=white&color=C160EF" alt="Open VSX version"></a>
-  <a href="https://open-vsx.org/extension/gitstudio/merge-studio"><img src="https://img.shields.io/open-vsx/dt/gitstudio/merge-studio?label=Downloads&logo=eclipseide&logoColor=white&color=C160EF" alt="Open VSX downloads"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-44a248.svg" alt="License: MIT"></a>
+  <a href="https://github.com/GitStudioHQ/merge-studio/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/GitStudioHQ/merge-studio/ci.yml?branch=main&label=build&logo=githubactions&logoColor=white" alt="CI build status"></a>
+  <a href="https://github.com/GitStudioHQ/merge-studio/security"><img src="https://img.shields.io/badge/vulnerabilities-0-44a248?logo=dependabot&logoColor=white" alt="Known vulnerabilities"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-44a248" alt="License: MIT"></a>
+  <a href="https://github.com/sponsors/antonarnaudov"><img src="https://img.shields.io/badge/Sponsor-EA4AAA?logo=githubsponsors&logoColor=white" alt="Sponsor on GitHub"></a>
+  <a href="https://checkout.revolut.com/pay/7a6070ab-99ba-4170-a125-c5911b1a5c1d"><img src="https://img.shields.io/badge/Buy_me_a_coffee-FF813F?logo=buymeacoffee&logoColor=white" alt="Buy me a coffee"></a>
 </p>
 
 <p align="center">
