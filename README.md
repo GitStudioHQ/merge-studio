@@ -63,11 +63,9 @@ The moment a merge, rebase, cherry-pick, or revert produces conflicts, the **Con
 - Live re-diff as you edit the right pane
 - The same ribbons, colors, and navigation as the merge editor
 
-## Prefer a JetBrains IDE? Hand it off
+## Open in a JetBrains IDE
 
-Merge Studio is the real merge editor for VS Code and Cursor — you no longer need to open a JetBrains IDE to resolve a conflict properly. If you've used the merge tool in IntelliJ IDEA, WebStorm, or PyCharm, the three-pane layout will feel familiar by design; that's deliberate, because it's the experience that was missing here.
-
-For the times you still prefer to finish a merge in your JetBrains window, the hand-off is there — a convenience, not a crutch. Set `jbMerge.conflictResolver: "jetbrains"` (or `jbMerge.diffTool: "jetbrains"`) and Merge Studio shells out to the installed IDE, auto-detecting it from your `PATH` or `/Applications`. Supports WebStorm, PyCharm, IntelliJ IDEA, PhpStorm, GoLand, CLion, Rider, RubyMine, and DataGrip. Entirely optional — everything above stands on its own.
+Prefer to resolve in a JetBrains IDE? Set `jbMerge.conflictResolver: "jetbrains"` (or `jbMerge.diffTool: "jetbrains"`) and Merge Studio opens the merge or diff directly in your installed IDE — WebStorm, PyCharm, IntelliJ IDEA, PhpStorm, GoLand, CLion, Rider, RubyMine, or DataGrip, auto-detected from your `PATH` or `/Applications`.
 
 ## Install
 

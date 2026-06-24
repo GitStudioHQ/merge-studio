@@ -175,8 +175,8 @@
           },
           {
             "id": "mergeStudio.handoff",
-            "title": "Optional: hand off to JetBrains",
-            "description": "Merge Studio is the real merge editor right here — but if you still prefer your JetBrains window for a particular merge, you can hand any merge or diff off to it. A convenience, not a crutch — entirely optional, and everything above works without it.",
+            "title": "Optional: open in a JetBrains IDE",
+            "description": "Prefer a JetBrains IDE? Set `jbMerge.conflictResolver` to `jetbrains` and Merge Studio opens conflicts directly in your installed IntelliJ, WebStorm, PyCharm, or other JetBrains IDE.",
             "media": {
               "image": "media/screenshots/merge-editor.png",
               "altText": "The three-pane merge editor — Merge Studio can hand any merge off to an installed JetBrains IDE."
