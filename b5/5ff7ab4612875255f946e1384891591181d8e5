@@ -1,0 +1,59 @@
+.github/workflows/release.yml
+  s_26f5e669d3043c::t_fc92012bdf3391 45-54
+CHANGELOG.md
+  s_26f5e669d3043c::t_095e4a6b690a35 22-24,33
+NOTICE
+  s_26f5e669d3043c::t_c7b32670c67da2 17-25
+README.md
+  s_26f5e669d3043c::t_b52c538bd4a982 87,115,126
+RELEASING.md
+  s_26f5e669d3043c::t_9a7b08cafc365c 193-194
+VENDORED_FROM.json
+  s_26f5e669d3043c::t_93b4816c424692 6,56,94,106,116,122-123,130,180,184-186,202,205-206,209-213
+package.json
+  s_26f5e669d3043c::t_26278e83f47db6 95-96,107
+src/extension.ts
+  s_26f5e669d3043c::t_a026e489c2e8f0 11-15,36,50,55-60,111-113
+src/ids.ts
+  s_26f5e669d3043c::t_419fa5f8f3ce5b 70-71,73-75,79,81-83
+src/msProduct.ts
+  s_26f5e669d3043c::t_65adc3be5fd0d2 8-10,20,22,47-51
+src/shell.ts
+  s_26f5e669d3043c::t_06245a513228c6 4-5,10-11,74-77,80-81,83-85,87-91,94-100,122-137
+test/manifest.test.ts
+  s_26f5e669d3043c::t_a8bbc929be9a2b 81,84-101,155-166,242-254
+test/parity.test.ts
+  s_26f5e669d3043c::t_3128475cf07866 14-18,222-230
+test/shell.test.ts
+  s_26f5e669d3043c::t_1f993826cfbe96 21,64-76,85-110,115,119-129,186
+vendor/gitstudio/extension/package.json
+  s_26f5e669d3043c::t_a255bc5bea2bec 1074
+vendor/gitstudio/host-bridge/src/conflictsProtocol.ts
+  s_26f5e669d3043c::t_7638c859c175c0 266-270
+vendor/gitstudio/merge-vscode/src/coexistence.ts
+  s_26f5e669d3043c::t_64a8c76f819b0f 21-22,26,40-58,114-157
+vendor/gitstudio/merge-vscode/src/index.ts
+  s_26f5e669d3043c::t_5f62530c8abdb7 12-13,19
+vendor/gitstudio/merge-vscode/src/product.ts
+  s_26f5e669d3043c::t_cd102429b6932d 105-114,136-140,154-167,219-244,248-249,252
+vendor/gitstudio/merge-vscode/src/register.ts
+  s_26f5e669d3043c::t_29d16d91acc56b 20-26,68-69,165-171,173-177
+vendor/gitstudio/webview-ui/src/conflicts/dashboard.ts
+  s_26f5e669d3043c::t_1abe8519c9b248 582-588,590
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "b55ff7ab4612875255f946e1384891591181d8e5",
+  "prompts": {},
+  "sessions": {
+    "s_26f5e669d3043c": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "84d5bd8e-bf89-4d7c-9932-e410f3e06481",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Anton Arnaudov <anton.arnaudov.me@gmail.com>"
+    }
+  }
+}
