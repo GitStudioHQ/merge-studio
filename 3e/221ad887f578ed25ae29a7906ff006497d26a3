@@ -1,0 +1,23 @@
+CHANGELOG.md
+  s_26f5e669d3043c::t_5e8139b8e183e2 3-6
+package.json
+  s_26f5e669d3043c::t_8c1f10819254c5 5
+src/links.ts
+  s_26f5e669d3043c::t_1be621c2b50630 64
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "3e221ad887f578ed25ae29a7906ff006497d26a3",
+  "prompts": {},
+  "sessions": {
+    "s_26f5e669d3043c": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "84d5bd8e-bf89-4d7c-9932-e410f3e06481",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Anton Arnaudov <anton.arnaudov.me@gmail.com>"
+    }
+  }
+}
