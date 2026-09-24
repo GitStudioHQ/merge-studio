@@ -1,0 +1,111 @@
+CHANGELOG.md
+  s_26f5e669d3043c::t_28683e3fc11881 5,13,28,36,38-39,52,67-68
+README.md
+  s_26f5e669d3043c::t_b5ab690e13c16a 14,20,28,35-36,53,57,59,63,67-68,71
+RELEASING.md
+  s_26f5e669d3043c::t_1d55ef17f9f300 276-277
+SHOTS.md
+  s_26f5e669d3043c::t_706e68c80203d7 1,3-7,10-23,29,33-34,36-39,44-46,48,50-57
+VENDORED_FROM.json
+  s_26f5e669d3043c::t_ac651e45fc4e9f 6,48-49,60-61,66,70,74,97,101,106,110,112-114,116,123,126-127,130-131,133-134,139-141,143,164-167,175,180-181,185,194,199-201,207-232,235-236,239-241,243
+package-lock.json
+  s_26f5e669d3043c::t_8e1cfd75aa6a32 529-531
+package.json
+  s_26f5e669d3043c::t_29fb6d1030ae12 107,189-195,206-212,223-229,238,240-246,258-264,276-282,293-299,311-317,566
+src/extension.ts
+  s_26f5e669d3043c::t_6d291cc6c18dbc 18,21,23,25,27,38,48-56,68-81,91,101-102,129-131,160,190-203
+src/ids.ts
+  s_26f5e669d3043c::t_183dd3a37d93c2 84-95
+src/msProduct.ts
+  s_26f5e669d3043c::t_6f1b2c44d4971d 12-18,24,29,37-38,58-67
+src/shell.ts
+  s_26f5e669d3043c::t_56821296c1dd00 36-41,46
+test/manifest.test.ts
+  s_26f5e669d3043c::t_20da14426e3999 157-165,167-168,196-219
+test/shell.test.ts
+  s_26f5e669d3043c::t_a26e810f503f23 146-167
+vendor/gitstudio/engine/src/conflict/sides.ts
+  s_26f5e669d3043c::t_26a96094bfcb12 137,154-166
+vendor/gitstudio/engine/src/conflict/stashEnd.ts
+  s_26f5e669d3043c::t_b569d9faafc8b7 1-84
+vendor/gitstudio/extension/package.json
+  s_26f5e669d3043c::t_58233a5d4c7c10 1074
+vendor/gitstudio/extension/src/merge/mergeIds.ts
+  s_26f5e669d3043c::t_c7557a73a61d3e 40-46
+vendor/gitstudio/git-service/src/ConflictOps.ts
+  s_26f5e669d3043c::t_df2b8bb4231afc 267-273,276-282,286-295,677-689
+vendor/gitstudio/git-service/src/GitToolHost.ts
+  s_26f5e669d3043c::t_4c8660d2a4375f 35,418-426
+vendor/gitstudio/git-service/src/OperationProvider.ts
+  s_26f5e669d3043c::t_aba9c3da723c48 340-341
+vendor/gitstudio/git-service/src/stoppedOperation.ts
+  s_26f5e669d3043c::t_6765b97823d30b 29,106
+vendor/gitstudio/host-bridge/src/conflictsProtocol.ts
+  s_26f5e669d3043c::t_aea3e314803d10 103-109,279-291,324-326
+vendor/gitstudio/host-bridge/src/protocol.ts
+  s_26f5e669d3043c::t_3b6c852d4bba97 78-83,185-186
+vendor/gitstudio/merge-vscode/src/args.ts
+  s_26f5e669d3043c::t_0430f54119383c 38-43,45-50
+vendor/gitstudio/merge-vscode/src/autoRouteHost.ts
+  s_26f5e669d3043c::t_19898a2174d7fc 15,83-86
+vendor/gitstudio/merge-vscode/src/coexistence.ts
+  s_26f5e669d3043c::t_a2327e36a8f4e4 26,55-56,75-82,124-183
+vendor/gitstudio/merge-vscode/src/conflictsPanel.ts
+  s_26f5e669d3043c::t_a837df804973b5 18,62-71,178,230,235-239
+vendor/gitstudio/merge-vscode/src/dashboardController.ts
+  s_26f5e669d3043c::t_76c5b180c748fd 32,69-72,78-80,105,125-132,175-176,184-185,189-194
+vendor/gitstudio/merge-vscode/src/host.ts
+  s_26f5e669d3043c::t_b7dac0616f9118 7,38,71-76,78-81,107-162
+vendor/gitstudio/merge-vscode/src/mergeEditorProvider.ts
+  s_26f5e669d3043c::t_d2d90263dfa438 17,164,272-274
+vendor/gitstudio/merge-vscode/src/mergeSession.ts
+  s_26f5e669d3043c::t_5d5165813047fd 79-80,125-128
+vendor/gitstudio/merge-vscode/src/product.ts
+  s_26f5e669d3043c::t_c3e52c144e45d6 105-186,243-264,330-341,347-449
+vendor/gitstudio/merge-vscode/src/register.ts
+  s_26f5e669d3043c::t_19b16048e127ba 23,36,60-65,156-157,175-182,187-188,193-195,231-233,235-243,301-303,396-423
+vendor/gitstudio/merge-vscode/src/statusItem.ts
+  s_26f5e669d3043c::t_d30c1c141da1dc 1-7,10,26-28,32-34
+vendor/gitstudio/merge-vscode/src/upgradeTip.ts
+  s_26f5e669d3043c::t_35d2541ecf034a 1-61
+vendor/gitstudio/webview-ui/src/conflicts/dashboard.ts
+  s_26f5e669d3043c::t_83d7cf08354c5f 30,32,43,84,243-247,251-253,255,310-313,339-354,373-392,411-432,483-486,488-490,677-680,684-688,707,724-727,736
+vendor/gitstudio/webview-ui/src/conflicts/main.ts
+  s_26f5e669d3043c::t_ced4895db6797b 39-47
+vendor/gitstudio/webview-ui/src/conflicts/opText.ts
+  s_26f5e669d3043c::t_4666b0d10ff659 14,89-225,305,308-311,313,315-326
+vendor/gitstudio/webview-ui/src/decorations.ts
+  s_26f5e669d3043c::t_d31176f29ac0d0 52-58,61-63,146-148,337,340,353,357
+vendor/gitstudio/webview-ui/src/mergeLegend.ts
+  s_26f5e669d3043c::t_ead6756f73055d 267-270,272-275,328-331,334-343,345
+vendor/gitstudio/webview-ui/src/mergeShell.ts
+  s_26f5e669d3043c::t_1aee3d2ddaabe8 83,255,258-262,325-326,583,786-794,878-894,900-912,1277-1279,1303-1308,1312-1313,1322-1327,1640-1646
+vendor/gitstudio/webview-ui/src/mergeView.ts
+  s_26f5e669d3043c::t_324cbfbf0d71e2 32,324,328,423,488-505,524-525,541-560,1234,1240-1264
+vendor/gitstudio/webview-ui/src/mergeViewApi.ts
+  s_26f5e669d3043c::t_f22d25066bc45a 197-202
+vendor/gitstudio/webview-ui/src/ribbons.ts
+  s_26f5e669d3043c::t_3dbbff24bcfa21 111-117,314-315
+vendor/gitstudio/webview-ui/src/styles/conflicts.css
+  s_26f5e669d3043c::t_55ccf84aa4945b 49-69,303-344,445-447,547-554
+vendor/gitstudio/webview-ui/src/styles/diff.css
+  s_26f5e669d3043c::t_08a7c6fc2ff0e0 78-85,87-94,99,101-106,120-126,130-134,337-339,343,352,356-360,362,418-432,630-633,887-889
+vendor/gitstudio/webview-ui/src/styles/shell.css
+  s_26f5e669d3043c::t_780d2fd33a91b6 160-162,187-205,284-293
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "9d4cdc58945fd946e53a4af7cae3a5df25928ead",
+  "prompts": {},
+  "sessions": {
+    "s_26f5e669d3043c": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "84d5bd8e-bf89-4d7c-9932-e410f3e06481",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Anton Arnaudov <anton.arnaudov.me@gmail.com>"
+    }
+  }
+}
