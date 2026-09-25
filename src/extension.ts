@@ -1,616 +1,221 @@
+// Merge Studio: a thin shell over GitStudio's shared merge packages.
+//
+// This file builds MS_PRODUCT (brand, `jbMerge` ids and settings, support
+// links, a modal for its few questions, repositories from VS Code's git
+// extension) and hands it to @gitstudio/merge-vscode's registrar, which
+// registers the merge editor, the conflicts dashboard, routing, the status
+// item, the JetBrains hand-off, the diff panel and the coexistence question.
+// What stays here is brand-only: the walkthrough, the context key that
+// switches its "Using GitStudio too?" step, and one legacy setting value.
+//
+// When a GitStudio with this same merge experience is installed with
+// `gitstudio.merge.autoOpen` on, GitStudio owns everything automatic (decision
+// D4) and Merge Studio says so once; the rule and the notice are merge-vscode's
+// (shouldDeferToGitStudio, maybeSayDeferred), and Merge Studio's commands keep
+// working. An older GitStudio, without the dashboard, is never deferred to.
+
 import * as vscode from "vscode";
-import { MergeEditorProvider } from "./mergeEditorProvider";
-import { ConflictsPanel } from "./conflictsPanel";
-import { DiffPanel, type DiffPanelState } from "./diffPanel";
+import { hasSharedMergeExperience, shouldDeferToGitStudio, type MergePeerApi } from "@gitstudio/merge-vscode/product";
+import { registerMergeExperience } from "@gitstudio/merge-vscode/register";
+import { VscodeGitLocator } from "@gitstudio/merge-vscode/vscodeGitLocator";
+import { setUpSidesTip, SIDES_WHY_URL } from "@gitstudio/merge-vscode/upgradeTip";
 import {
-  findRepoWithConflicts,
-  getHeadVersion,
-  isConflicted,
-  watchRepositories,
-  type Repository,
-} from "./git/gitService";
+  MS_034_COEXIST_KEY,
+  MS_DEFERS_CONTEXT_KEY,
+  MS_LAST_VERSION_KEY,
+  MS_SETTINGS_SECTION,
+  MS_SIDES_TIP_KEY,
+  MS_WALKTHROUGH_COMMAND,
+  MS_WALKTHROUGH_FULL_ID,
+  MS_WALKTHROUGH_SHOWN_KEY,
+} from "./ids";
+import { LateLocator } from "./lateLocator";
+import { supportLinks } from "./links";
+import { buildMsProduct } from "./msProduct";
 import {
-  clearAutoOpenSuppression,
-  isAutoOpenSuppressed,
-} from "./conflict/exitGuard";
-import {
-  diffAgainstHeadWithJetBrains,
-  diffFilesWithJetBrains,
-  findConfiguredLauncher,
-  mergeWithJetBrains,
-} from "./jetbrains/launcher";
-import { DEMO_DIFF, DEMO_MERGE } from "./demoContent";
+  decideWalkthrough,
+  GITSTUDIO_AUTO_OPEN_SECTION,
+  GITSTUDIO_EXTENSION_ID,
+  gitStudioFacts,
+  legacySettingUpdates,
+  legacyStateUpdates,
+  modalAsk,
+} from "./shell";
 
-const COEXIST_PROMPT_KEY = "jbMerge.coexistPromptShown";
-const WALKTHROUGH_SHOWN_KEY = "jbMerge.walkthroughShown";
-const WALKTHROUGH_ID = "gitstudio.merge-studio#mergeStudio.gettingStarted";
-
-export function activate(context: vscode.ExtensionContext): void {
-  context.subscriptions.push(MergeEditorProvider.register(context));
-  context.subscriptions.push(DiffPanel.register(context));
-  registerIdeAvailabilityContext(context);
-  registerAutoOpen(context);
-  registerMergeTabReroute(context);
-  registerConflictsDialog(context);
-  registerWalkthrough(context);
-  registerDemos(context);
-  void maybeOfferCoexistence(context);
-
-  context.subscriptions.push(
-    vscode.commands.registerCommand("jbMerge.showConflicts", async () => {
-      const repo = await findRepoWithConflicts();
-      if (!repo) {
-        void vscode.window.showInformationMessage(
-          "Merge Studio: no merge conflicts in the open repositories.",
-        );
-        return;
-      }
-      ConflictsPanel.show(repo);
-    }),
-  );
-
-  context.subscriptions.push(
-    vscode.commands.registerCommand(
-      "jbMerge.resolveInMergeEditor",
-      async (arg?: unknown) => {
-        const uri =
-          resolveUriArg(arg) ?? vscode.window.activeTextEditor?.document.uri;
-        if (!uri) {
-          void vscode.window.showWarningMessage(
-            "Merge Studio: no file selected to open in the merge editor.",
-          );
-          return;
-        }
-        await vscode.commands.executeCommand(
-          "vscode.openWith",
-          uri,
-          MergeEditorProvider.viewType,
-        );
-      },
-    ),
-  );
-
-  context.subscriptions.push(
-    vscode.commands.registerCommand(
-      "jbMerge.openDiff",
-      (clicked?: unknown, selected?: unknown) =>
-        openDiff(context, clicked, selected),
-    ),
-  );
-
-  // Editor-title / palette entry: always working-tree vs HEAD for the target.
-  context.subscriptions.push(
-    vscode.commands.registerCommand(
-      "jbMerge.openChanges",
-      async (arg?: unknown) => {
-        const uri =
-          resolveUriArg(arg) ?? vscode.window.activeTextEditor?.document.uri;
-        if (!uri) {
-          void vscode.window.showWarningMessage(
-            "Merge Studio: open a file to compare it against HEAD.",
-          );
-          return;
-        }
-        const head = await getHeadVersion(uri);
-        if (!head) {
-          void vscode.window.showWarningMessage(
-            "Merge Studio: no git HEAD version found for this file.",
-          );
-          return;
-        }
-        await DiffPanel.create(context, headState(uri, head.ref));
-      },
-    ),
-  );
-
-  // --- Real JetBrains IDE (shell-out) commands ---
-  context.subscriptions.push(
-    vscode.commands.registerCommand(
-      "jbMerge.mergeWithJetBrains",
-      async (arg?: unknown) => {
-        const uri =
-          resolveUriArg(arg) ?? vscode.window.activeTextEditor?.document.uri;
-        if (!uri) {
-          void vscode.window.showWarningMessage(
-            "Merge Studio: no conflicted file selected.",
-          );
-          return;
-        }
-        await mergeWithJetBrains(uri);
-      },
-    ),
-  );
-
-  context.subscriptions.push(
-    vscode.commands.registerCommand(
-      "jbMerge.diffWithJetBrains",
-      (clicked?: unknown, selected?: unknown) =>
-        diffWithJetBrains(clicked, selected),
-    ),
-  );
-
-  // Routed "Compare" entry: one menu item that honors the jbMerge.diffTool
-  // setting — the embedded diff by default, the real JetBrains IDE when chosen
-  // (and installed; otherwise it quietly uses the embedded diff).
-  context.subscriptions.push(
-    vscode.commands.registerCommand(
-      "jbMerge.compare",
-      (clicked?: unknown, selected?: unknown) => {
-        const tool = vscode.workspace
-          .getConfiguration("jbMerge")
-          .get<string>("diffTool", "embedded");
-        if (tool === "jetbrains" && findConfiguredLauncher()) {
-          return diffWithJetBrains(clicked, selected);
-        }
-        return openDiff(context, clicked, selected);
-      },
-    ),
-  );
-}
+/** The longest a fresh window waits for its repositories before the walkthrough decides. */
+const WALKTHROUGH_SETTLE_MS = 5000;
 
 /**
- * Resolves the two sides for a JetBrains-style diff from the invocation context:
- *  - exactly two files selected in the explorer -> diff those two
- *  - one file selected / editor title / palette -> working tree vs its HEAD
+ * What Merge Studio's `activate` returns: what GitStudio reads from it
+ * (vscode.extensions.getExtension("gitstudio.merge-studio").exports).
  */
-async function openDiff(
-  context: vscode.ExtensionContext,
-  clicked?: unknown,
-  selected?: unknown,
-): Promise<void> {
-  const selectedUris = collectUris(selected);
+export interface MergeStudioApi {
+  readonly mergePeer: MergePeerApi;
+}
 
-  if (selectedUris.length === 2) {
-    await DiffPanel.create(context, twoFileState(selectedUris[0], selectedUris[1]));
-    return;
-  }
+export function activate(context: vscode.ExtensionContext): MergeStudioApi {
+  const locator = new LateLocator();
+  context.subscriptions.push(locator);
 
-  const uri =
-    resolveUriArg(clicked) ??
-    selectedUris[0] ??
-    vscode.window.activeTextEditor?.document.uri;
-  if (!uri) {
-    void vscode.window.showWarningMessage(
-      "Merge Studio: open a file or select two files to compare.",
+  const defersTo = (): boolean =>
+    shouldDeferToGitStudio(
+      gitStudioFacts({
+        extension: (id) => vscode.extensions.getExtension(id),
+        setting: (section, key) => vscode.workspace.getConfiguration(section).get(key),
+      }),
     );
-    return;
+
+  // POLISH A5.9: an upgrade from 0.3.4 (a rebase's sides swapped) gets a
+  // one-time tip at its first rebase or stash conflict. 0.3.4 recorded no
+  // version; the keys it did write say it was installed.
+  const sidesTip = setUpSidesTip(context.globalState, {
+    version: String((context.extension.packageJSON as { version?: unknown }).version ?? ""),
+    lastVersionKey: MS_LAST_VERSION_KEY,
+    flippedAfter: "0.3.4",
+    priorInstall:
+      context.globalState.get(MS_WALKTHROUGH_SHOWN_KEY) !== undefined ||
+      context.globalState.get(MS_034_COEXIST_KEY) !== undefined,
+    dismissedKey: MS_SIDES_TIP_KEY,
+    why: SIDES_WHY_URL,
+  });
+
+  // What 0.3.4 left in globalState, read before the experience's first scan
+  // (a Memento update is visible to get() at once).
+  for (const update of legacyStateUpdates((key) => context.globalState.get(key))) {
+    void context.globalState.update(update.key, update.value);
   }
 
-  const head = await getHeadVersion(uri);
-  if (!head) {
-    void vscode.window.showWarningMessage(
-      "Merge Studio: no git HEAD version found for this file.",
-    );
-    return;
-  }
-  await DiffPanel.create(context, headState(uri, head.ref));
-}
-
-/**
- * JetBrains-IDE diff with the same target resolution as {@link openDiff}: two
- * selected files diff against each other; otherwise the file vs its git HEAD.
- */
-async function diffWithJetBrains(
-  clicked?: unknown,
-  selected?: unknown,
-): Promise<void> {
-  const selectedUris = collectUris(selected);
-  if (selectedUris.length === 2) {
-    await diffFilesWithJetBrains(selectedUris[0], selectedUris[1]);
-    return;
-  }
-  const uri =
-    resolveUriArg(clicked) ??
-    selectedUris[0] ??
-    vscode.window.activeTextEditor?.document.uri;
-  if (!uri) {
-    void vscode.window.showWarningMessage(
-      "Merge Studio: open a file or select two files to compare.",
-    );
-    return;
-  }
-  await diffAgainstHeadWithJetBrains(uri);
-}
-
-/** Working tree (current file, editable) vs HEAD (read-only). */
-function headState(uri: vscode.Uri, ref: string): DiffPanelState {
-  return {
-    fileName: uri.fsPath,
-    leftLabel: `HEAD (${ref})`,
-    rightLabel: "Working Tree",
-    leftSource: "head",
-    leftUri: uri.toString(),
-    rightUri: uri.toString(),
-    rightEditable: true,
-  };
-}
-
-/** Two explorer files: left read-only, right editable. */
-function twoFileState(left: vscode.Uri, right: vscode.Uri): DiffPanelState {
-  return {
-    fileName: right.fsPath,
-    leftLabel: left.fsPath.split(/[\\/]/).pop() ?? left.fsPath,
-    rightLabel: right.fsPath.split(/[\\/]/).pop() ?? right.fsPath,
-    leftSource: "uri",
-    leftUri: left.toString(),
-    rightUri: right.toString(),
-    rightEditable: true,
-  };
-}
-
-/**
- * First-run prompt offering to disable the built-in merge UI so it doesn't
- * compete. Only ever shown once, and only applies settings on explicit consent.
- */
-/**
- * Wires the "Getting Started" walkthrough: a command to (re)open it on demand,
- * and a one-time auto-open on first activation after install. VS Code features
- * contributed walkthroughs on the Welcome page automatically, but that only
- * surfaces when the welcome page is the startup editor — opening it once here
- * guarantees first-run onboarding regardless of that setting.
- */
-function registerWalkthrough(context: vscode.ExtensionContext): void {
-  context.subscriptions.push(
-    vscode.commands.registerCommand("jbMerge.openWalkthrough", () =>
-      vscode.commands.executeCommand(
-        "workbench.action.openWalkthrough",
-        WALKTHROUGH_ID,
-        false,
-      ),
-    ),
-  );
-
-  if (context.globalState.get<boolean>(WALKTHROUGH_SHOWN_KEY)) {
-    return;
-  }
-  void context.globalState.update(WALKTHROUGH_SHOWN_KEY, true);
-  void vscode.commands.executeCommand(
-    "workbench.action.openWalkthrough",
-    WALKTHROUGH_ID,
-    false,
-  );
-}
-
-/**
- * The walkthrough's "try it" actions. Both work on a fresh install with NO git
- * setup: the merge demo writes a sample carrying diff3 conflict markers (the
- * merge editor reconstructs base/ours/theirs from them), and the diff demo
- * feeds two inline texts straight into the diff panel.
- */
-function registerDemos(context: vscode.ExtensionContext): void {
-  context.subscriptions.push(
-    vscode.commands.registerCommand("jbMerge.openDemo", async () => {
-      const dir = vscode.Uri.joinPath(context.globalStorageUri, "demo");
-      await vscode.workspace.fs.createDirectory(dir);
-      const uri = vscode.Uri.joinPath(dir, DEMO_MERGE.fileName);
-      // Rewrite the pristine sample every time so it always opens unresolved,
-      // even after a previous run resolved it.
-      await vscode.workspace.fs.writeFile(
-        uri,
-        Buffer.from(DEMO_MERGE.body, "utf8"),
-      );
-      await vscode.commands.executeCommand(
-        "vscode.openWith",
-        uri,
-        MergeEditorProvider.viewType,
-      );
+  const MS_PRODUCT = buildMsProduct({
+    locator,
+    defersTo,
+    sidesTip,
+    ask: modalAsk((message, options, ...items) => vscode.window.showWarningMessage(message, options, ...items)),
+    supportLinks: supportLinks({
+      version: String((context.extension.packageJSON as { version?: unknown }).version ?? ""),
+      appName: vscode.env.appName,
+      appVersion: vscode.version,
+      uriScheme: vscode.env.uriScheme,
+      platform: `${process.platform} ${process.arch}`,
     }),
-    vscode.commands.registerCommand("jbMerge.openDemoDiff", async () => {
-      await DiffPanel.create(context, {
-        fileName: DEMO_DIFF.fileName,
-        leftLabel: DEMO_DIFF.leftLabel,
-        rightLabel: DEMO_DIFF.rightLabel,
-        rightEditable: false,
-        leftSource: "text",
-        leftText: DEMO_DIFF.leftText,
-        rightText: DEMO_DIFF.rightText,
-      });
-    }),
-  );
-}
+  });
+  const experience = registerMergeExperience(context, MS_PRODUCT);
+  context.subscriptions.push(experience);
 
-async function maybeOfferCoexistence(
-  context: vscode.ExtensionContext,
-): Promise<void> {
-  if (context.globalState.get<boolean>(COEXIST_PROMPT_KEY)) {
-    return;
-  }
-  await context.globalState.update(COEXIST_PROMPT_KEY, true);
-
-  const accept = "Disable built-ins";
-  const choice = await vscode.window.showInformationMessage(
-    "Merge Studio: disable VS Code's built-in merge editor and " +
-      "merge-conflict decorations so they don't compete?",
-    accept,
-    "Keep them",
-  );
-  if (choice !== accept) {
-    return;
-  }
-  const config = vscode.workspace.getConfiguration();
-  const target = vscode.ConfigurationTarget.Global;
-  await config.update("git.mergeEditor", false, target);
-  await config.update("merge-conflict.codeLens.enabled", false, target);
-  await config.update("merge-conflict.decorators.enabled", false, target);
-  void vscode.window.showInformationMessage(
-    "Merge Studio: built-in merge UI disabled.",
-  );
-}
-
-/** Normalizes a command's selection argument into a list of file Uris. */
-function collectUris(arg: unknown): vscode.Uri[] {
-  if (!Array.isArray(arg)) {
-    return [];
-  }
-  const uris: vscode.Uri[] = [];
-  for (const item of arg) {
-    const uri = resolveUriArg(item);
-    if (uri) {
-      uris.push(uri);
+  // Repositories arrive when VS Code's git extension is ready; until then the
+  // experience runs over an empty locator (commands work, nothing to scan).
+  void VscodeGitLocator.create().then((git) => {
+    if (git) {
+      context.subscriptions.push(git);
+      locator.bind(git);
     }
-  }
-  return uris;
+  });
+
+  // The walkthrough's "Choose your merge editor" / "Using GitStudio too?" pair.
+  const syncDefersContext = (): void => {
+    void vscode.commands.executeCommand("setContext", MS_DEFERS_CONTEXT_KEY, defersTo());
+  };
+  syncDefersContext();
+  context.subscriptions.push(
+    vscode.extensions.onDidChange(syncDefersContext),
+    vscode.workspace.onDidChangeConfiguration((event) => {
+      if (event.affectsConfiguration(GITSTUDIO_AUTO_OPEN_SECTION)) {
+        syncDefersContext();
+      }
+    }),
+  );
+
+  registerWalkthrough(context, locator);
+  void migrateLegacySettings();
+  // GitStudio reads this: a question answered here (or by 0.3.4, counted by
+  // legacyStateUpdates above) is not asked again when GitStudio owns it.
+  return { mergePeer: experience.peerApi };
 }
 
 export function deactivate(): void {
-  // Nothing to clean up beyond context.subscriptions.
+  // Everything is in context.subscriptions.
 }
 
-/**
- * Conflict-session UI driven by repository state:
- *  - a warning status-bar button ("⚠ Resolve Conflicts") while any conflicts
- *    remain, opening the Conflicts dialog;
- *  - opens the dialog the moment an operation produces conflicts (like
- *    JetBrains' conflicts dialog) and keeps bringing it back on git state
- *    changes until every conflict is resolved or the merge is cancelled.
- */
-function registerConflictsDialog(context: vscode.ExtensionContext): void {
-  const conflictCounts = new Map<string, number>();
+function registerWalkthrough(context: vscode.ExtensionContext, locator: LateLocator): void {
+  const open = () =>
+    vscode.commands.executeCommand("workbench.action.openWalkthrough", MS_WALKTHROUGH_FULL_ID, false);
+  context.subscriptions.push(vscode.commands.registerCommand(MS_WALKTHROUGH_COMMAND, open));
 
-  const statusItem = vscode.window.createStatusBarItem(
-    "jbMerge.conflicts",
-    vscode.StatusBarAlignment.Left,
-    10000,
-  );
-  statusItem.name = "Merge Studio: Conflicts";
-  statusItem.text = "$(warning) Resolve Conflicts";
-  statusItem.command = "jbMerge.showConflicts";
-  statusItem.backgroundColor = new vscode.ThemeColor(
-    "statusBarItem.warningBackground",
-  );
-  context.subscriptions.push(statusItem);
+  // "Already shown" follows the user to their other machines: it is in
+  // MS_PRODUCT.syncedStateKeys, and merge-vscode sets the extension's one sync
+  // list (a second setKeysForSync here would replace it).
 
-  const updateStatusItem = () => {
-    let total = 0;
-    conflictCounts.forEach((count) => (total += count));
-    if (total === 0) {
-      statusItem.hide();
+  if (context.globalState.get<boolean>(MS_WALKTHROUGH_SHOWN_KEY)) {
+    return;
+  }
+  let disposed = false;
+  context.subscriptions.push(new vscode.Disposable(() => (disposed = true)));
+  void whenRepositoriesSettle(locator, WALKTHROUGH_SETTLE_MS).then(async () => {
+    if (disposed) {
       return;
     }
-    statusItem.tooltip =
-      (total === 1 ? "1 conflicting file" : `${total} conflicting files`) +
-      " — open the conflicts dialog";
-    statusItem.show();
-  };
-
-  // Instant conflict detection: vscode.git's own watcher can lag a merge by
-  // a second or more. Watching the .git operation-state files directly and
-  // poking repo.status() the moment one appears makes mergeChanges (and so
-  // the dialog) update near-instantly.
-  const opStateWatched = new Set<string>();
-  const watchOpStateFiles = (repo: Repository) => {
-    const key = repo.rootUri.toString();
-    if (opStateWatched.has(key)) {
-      return;
-    }
-    opStateWatched.add(key);
-    const watcher = vscode.workspace.createFileSystemWatcher(
-      new vscode.RelativePattern(
-        vscode.Uri.joinPath(repo.rootUri, ".git"),
-        "{MERGE_HEAD,CHERRY_PICK_HEAD,REVERT_HEAD,rebase-merge,rebase-apply}",
-      ),
-    );
-    const poke = () => void repo.status?.();
-    watcher.onDidCreate(poke);
-    watcher.onDidChange(poke);
-    watcher.onDidDelete(poke);
-    context.subscriptions.push(watcher);
-  };
-
-  watchRepositories(context, (repo) => {
-    watchOpStateFiles(repo);
-    const key = repo.rootUri.toString();
-    const conflictCount = repo.state.mergeChanges.length;
-    conflictCounts.set(key, conflictCount);
-    updateStatusItem();
-    if (conflictCount > 0) {
-      ConflictsPanel.ensureVisible(repo);
+    const decision = decideWalkthrough({
+      shown: Boolean(context.globalState.get<boolean>(MS_WALKTHROUGH_SHOWN_KEY)),
+      openOnInstall: vscode.workspace.getConfiguration().get("workbench.welcomePage.walkthroughs.openOnInstall"),
+      busy: await anyRepositoryBusy(locator),
+      gitStudioWalkthroughOnScreen: await gitStudioWalkthroughOpened(),
+    });
+    if (decision === "open" && !disposed) {
+      await context.globalState.update(MS_WALKTHROUGH_SHOWN_KEY, true);
+      await open();
     }
   });
 }
 
 /**
- * Keeps the `jbMerge.ideAvailable` context key in sync with whether a JetBrains
- * IDE is actually installed, so JetBrains menu entries hide when launching one
- * could only fail. Re-evaluated when jbMerge settings change (preferredIde /
- * jetbrainsPath can make an IDE reachable without a reload).
+ * Resolves once the git extension has reported a repository, or after
+ * `maxMs` (a window with no repository, or git turned off).
  */
-function registerIdeAvailabilityContext(context: vscode.ExtensionContext): void {
-  const update = () =>
-    void vscode.commands.executeCommand(
-      "setContext",
-      "jbMerge.ideAvailable",
-      Boolean(findConfiguredLauncher()),
-    );
-  update();
-  context.subscriptions.push(
-    vscode.workspace.onDidChangeConfiguration((event) => {
-      if (event.affectsConfiguration("jbMerge")) {
-        update();
-      }
-    }),
-  );
-}
-
-/** One-time notice that conflicts are routed to the embedded editor instead. */
-let embeddedFallbackNotified = false;
-function notifyEmbeddedFallback(): void {
-  if (embeddedFallbackNotified) {
-    return;
-  }
-  embeddedFallbackNotified = true;
-  const openSettings = "Open Settings";
-  void vscode.window
-    .showInformationMessage(
-      "Merge Studio: no JetBrains IDE found — using the embedded merge " +
-        "editor instead. Install an IDE or set its launcher path to use the " +
-        "real merge window.",
-      openSettings,
-    )
-    .then((choice) => {
-      if (choice === openSettings) {
-        void vscode.commands.executeCommand(
-          "workbench.action.openSettings",
-          "jbMerge.jetbrainsPath",
-        );
-      }
+function whenRepositoriesSettle(locator: LateLocator, maxMs: number): Promise<void> {
+  return new Promise((resolve) => {
+    let finished = false;
+    const finish = (): void => {
+      if (finished) return;
+      finished = true;
+      subscription.dispose();
+      clearTimeout(timer);
+      resolve();
+    };
+    const subscription = locator.onDidChange(() => {
+      if (locator.bound && locator.all().length > 0) finish();
     });
+    const timer = setTimeout(finish, maxMs);
+  });
 }
 
-/**
- * Auto-routes conflicted files into the JetBrains-style merge editor when they
- * become the active text editor (superseding the built-in editor). Controlled
- * by the `jbMerge.autoOpen` setting; guarded against re-entrant routing.
- */
-function registerAutoOpen(context: vscode.ExtensionContext): void {
-  const recentlyRouted = new Set<string>();
-  // Files we've already launched the external IDE for this session, so we don't
-  // pop a new WebStorm window every time the editor regains focus.
-  const launchedInIde = new Set<string>();
-
-  const maybeRoute = async (editor: vscode.TextEditor | undefined) => {
-    if (!editor) {
-      return;
-    }
-    const config = vscode.workspace.getConfiguration("jbMerge");
-    if (!config.get<boolean>("autoOpen", true)) {
-      return;
-    }
-    const uri = editor.document.uri;
-    if (uri.scheme !== "file") {
-      return;
-    }
-    const key = uri.toString();
-    if (recentlyRouted.has(key)) {
-      return;
-    }
-    if (!(await isConflicted(uri))) {
-      launchedInIde.delete(key); // resolved/closed — allow a future re-launch
-      clearAutoOpenSuppression(uri);
-      return;
-    }
-    if (isAutoOpenSuppressed(uri)) {
-      return; // the user explicitly exited the viewer for this conflict
-    }
-    recentlyRouted.add(key);
-    setTimeout(() => recentlyRouted.delete(key), 1500);
-
-    const resolver = config.get<string>("conflictResolver", "webview");
-    if (resolver === "jetbrains" && findConfiguredLauncher()) {
-      if (!launchedInIde.has(key)) {
-        launchedInIde.add(key);
-        await mergeWithJetBrains(uri);
-      }
-      return;
-    }
-    if (resolver === "jetbrains") {
-      notifyEmbeddedFallback();
-    }
-    await vscode.commands.executeCommand(
-      "vscode.openWith",
-      uri,
-      MergeEditorProvider.viewType,
-    );
-  };
-
-  context.subscriptions.push(
-    vscode.window.onDidChangeActiveTextEditor((editor) => void maybeRoute(editor)),
-  );
-  void maybeRoute(vscode.window.activeTextEditor);
-}
-
-/**
- * Replaces VS Code's built-in 3-way merge editor (which opens for conflicted
- * files when git.mergeEditor is on, and which a TextEditor listener can't catch)
- * with our resolver. This is what guarantees the user sees clean code instead of
- * the built-in editor's raw <<<<<<< markers.
- */
-function registerMergeTabReroute(context: vscode.ExtensionContext): void {
-  const rerouted = new Set<string>();
-
-  const handle = async () => {
-    const config = vscode.workspace.getConfiguration("jbMerge");
-    if (!config.get<boolean>("autoOpen", true)) {
-      return;
-    }
-    const resolver = config.get<string>("conflictResolver", "webview");
-
-    for (const group of vscode.window.tabGroups.all) {
-      for (const tab of group.tabs) {
-        // Duck-type the built-in merge editor tab (TabInputTextMerge): it
-        // uniquely carries input1/input2/result Uris. Typed this way so we
-        // don't depend on a vscode API newer than our engines.vscode baseline.
-        const input = tab.input as
-          | { input1?: vscode.Uri; input2?: vscode.Uri; result?: vscode.Uri }
-          | undefined;
-        if (!input?.result || !input.input1 || !input.input2) {
-          continue;
-        }
-        const uri = input.result;
-        const key = uri.toString();
-        if (rerouted.has(key)) {
-          continue;
-        }
-        rerouted.add(key);
-        setTimeout(() => rerouted.delete(key), 3000);
-
-        try {
-          await vscode.window.tabGroups.close(tab);
-        } catch {
-          // tab already gone
-        }
-        if (resolver === "jetbrains" && findConfiguredLauncher()) {
-          await mergeWithJetBrains(uri);
-        } else {
-          if (resolver === "jetbrains") {
-            notifyEmbeddedFallback();
-          }
-          await vscode.commands.executeCommand(
-            "vscode.openWith",
-            uri,
-            MergeEditorProvider.viewType,
-          );
-        }
-      }
-    }
-  };
-
-  context.subscriptions.push(
-    vscode.window.tabGroups.onDidChangeTabs(() => void handle()),
-  );
-  void handle();
-}
-
-/** SCM/explorer menu commands pass a resource state or Uri; normalize to a Uri. */
-function resolveUriArg(arg: unknown): vscode.Uri | undefined {
-  if (arg instanceof vscode.Uri) {
-    return arg;
+/** GitStudio (with this merge experience) opened its own walkthrough in this session. */
+async function gitStudioWalkthroughOpened(): Promise<boolean> {
+  const gs = vscode.extensions.getExtension(GITSTUDIO_EXTENSION_ID);
+  if (!gs || !hasSharedMergeExperience(gs.packageJSON)) {
+    return false;
   }
-  if (arg && typeof arg === "object") {
-    const candidate = (arg as { resourceUri?: unknown }).resourceUri;
-    if (candidate instanceof vscode.Uri) {
-      return candidate;
-    }
+  try {
+    const api = (gs.isActive ? gs.exports : await gs.activate()) as { mergePeer?: MergePeerApi } | undefined;
+    return api?.mergePeer?.walkthroughOpenedThisSession?.() === true;
+  } catch {
+    return false;
   }
-  return undefined;
+}
+
+/** An operation in progress or unmerged files in any open repository (then the dashboard has the stage). */
+async function anyRepositoryBusy(locator: LateLocator): Promise<boolean> {
+  const detections = await Promise.all(
+    locator.all().map((repo) => repo.ctx.operation.detect().catch(() => ({ kind: "none" as const, unmerged: 0 }))),
+  );
+  return detections.some((d) => d.kind !== "none" || d.unmerged > 0);
+}
+
+async function migrateLegacySettings(): Promise<void> {
+  try {
+    const config = vscode.workspace.getConfiguration(MS_SETTINGS_SECTION);
+    for (const update of legacySettingUpdates((key) => config.inspect(key))) {
+      await config.update(update.key, update.value, vscode.ConfigurationTarget.Global);
+    }
+  } catch {
+    // Best effort: the old value keeps working either way.
+  }
 }

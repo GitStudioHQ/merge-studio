@@ -1,0 +1,488 @@
+import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { constants as osConstants } from "node:os";
+import { auditSpawn } from "./spawnAudit";
+
+export interface GitProcessOptions {
+  cwd: string;
+  /** Path to the git binary; defaults to "git". */
+  gitPath?: string;
+  /**
+   * Maximum number of concurrent git processes; defaults to 12. Git *reads*
+   * (status, worktree list, for-each-ref, log streams, …) dominate the sidebar's
+   * opening burst, and a long-lived `log` stream holds a slot for its whole
+   * duration — so a low cap serialised the burst and starved fast reads like
+   * `worktree list` behind them. Reads are cheap and idempotent, so a wider pool
+   * clears the burst in one wave; the cap still exists to prevent a fork-storm.
+   */
+  maxConcurrent?: number;
+  /**
+   * Optional observer fired once per completed git invocation. Used by hosts to
+   * surface a live "git command" output log. Never invoked for aborted runs, and
+   * any throw from it is swallowed so an observer can't break git execution.
+   */
+  onRun?: GitRunHook;
+}
+
+/** A completed git invocation, surfaced to {@link GitProcessOptions.onRun}. The
+ *  reported `args` exclude the internal hardened `-c` flags. */
+export interface GitRunEvent {
+  /** The meaningful git arguments, e.g. ["status", "--porcelain"]. */
+  args: string[];
+  /** Wall-clock duration in milliseconds. */
+  durationMs: number;
+  /** Process exit code, or null when it failed to spawn / was killed. */
+  exitCode: number | null;
+  /** True when the process exited non-zero or failed to run. */
+  failed: boolean;
+  /** On failure: the (truncated) stderr, so log surfaces can explain WHY. */
+  stderr?: string;
+}
+
+/** Observer invoked once per completed (non-aborted) git invocation. */
+export type GitRunHook = (event: GitRunEvent) => void;
+
+export interface GitRunResult {
+  stdout: string;
+  stderr: string;
+  code: number;
+}
+
+export interface GitRunOptions {
+  signal?: AbortSignal;
+}
+
+export interface GitRunWithInputOptions extends GitRunOptions {
+  /**
+   * Optional utf8 payload to write to the child's stdin (then end it). Used by
+   * the BlameProvider to feed a dirty editor buffer via `git blame --contents -`,
+   * and by the graph's branch filter to hand `git log --stdin` its revisions
+   * (see LogProvider.streamCommits).
+   */
+  input?: string;
+}
+
+/** Hardened config flags prepended to every invocation. */
+const HARDENED_ARGS: readonly string[] = [
+  "-c",
+  "log.showSignature=false",
+  "-c",
+  "core.commitGraph=true",
+];
+
+function makeAbortError(): Error {
+  // Node's own AbortError shape: name === "AbortError".
+  const err = new Error("The operation was aborted");
+  err.name = "AbortError";
+  return err;
+}
+
+/**
+ * The exit code of a git that ended without one: killed by a signal (our own
+ * `dispose()`, the OS, a user's `kill`). Node reports `code === null` then, and
+ * reading that as 0 made every caller see a killed git as SUCCESS WITH NO
+ * OUTPUT — `rev-parse --git-path` answered "" (the repository root), `ls-files
+ * -u` answered "nothing is unmerged". 128 + the signal number is the shell's
+ * convention, and it can never be mistaken for a meaningful git status such as
+ * `diff --quiet`'s 1.
+ */
+function signalExitCode(signal: NodeJS.Signals | null): number {
+  const n = signal ? osConstants.signals[signal] : undefined;
+  return 128 + (typeof n === "number" ? n : 0);
+}
+
+function signalMessage(signal: NodeJS.Signals | null): string {
+  return `git was stopped by ${signal ?? "a signal"} before it finished.`;
+}
+
+/**
+ * Hand a freshly spawned child its stdin — `input` if there is one — and END
+ * it either way. Both run() and stream() come through here, so the two cannot
+ * drift on the three rules:
+ *
+ *   • always end it. Left open, any git command that decides to read stdin
+ *     waits on a pipe nobody will ever write to, and the caller waits on git.
+ *   • a write error is not the caller's error. git may exit without reading
+ *     what it was given — it failed early, or it was killed because the
+ *     consumer went away — and the pending write then fails with EPIPE. With
+ *     no listener that is an uncaught 'error' event, which takes the whole
+ *     host process down over a child that has already finished.
+ *   • node buffers what the pipe cannot take yet, so a payload larger than the
+ *     pipe never blocks the writer. What must not outlive the child is that
+ *     buffer; see dropStdin.
+ */
+function feedStdin(child: ChildProcessWithoutNullStreams, input: string | undefined): void {
+  child.stdin.on("error", () => {});
+  if (input !== undefined) {
+    child.stdin.end(input);
+  } else {
+    child.stdin.end();
+  }
+}
+
+/** Throw away whatever of stdin has not been written yet. Called once the
+ *  child is done with — killed or exited — so a large payload is not held in
+ *  memory, or retried against a pipe nobody reads, after it stopped mattering. */
+function dropStdin(child: ChildProcessWithoutNullStreams): void {
+  if (!child.stdin.destroyed) {
+    child.stdin.destroy();
+  }
+}
+
+/**
+ * A bounded pool of spawned `git` CLI processes. Args are always passed as an
+ * array (never a shell string), git runs in `cwd` with hardened config flags
+ * and GIT_OPTIONAL_LOCKS=0, and at most `maxConcurrent` processes run at once.
+ * This package must never import `vscode`.
+ */
+export class GitProcess {
+  /** The repository root every command runs in. Readable so a provider can ask
+   *  the filesystem something git will not answer — e.g. the mode of a file that
+   *  is not in the index yet. */
+  readonly cwd: string;
+  private readonly gitPath: string;
+  private readonly maxConcurrent: number;
+  private readonly onRun?: GitRunHook;
+
+  private active = 0;
+  private readonly waiters: Array<() => void> = [];
+  private readonly children = new Set<ChildProcessWithoutNullStreams>();
+  private disposed = false;
+
+  constructor(opts: GitProcessOptions) {
+    this.cwd = opts.cwd;
+    this.gitPath = opts.gitPath ?? "git";
+    this.maxConcurrent = opts.maxConcurrent ?? 12;
+    this.onRun = opts.onRun;
+  }
+
+  /** Fire the onRun observer for a completed invocation (best-effort). */
+  private report(
+    args: string[],
+    exitCode: number | null,
+    failed: boolean,
+    startedAt: number,
+    stderr?: string,
+  ): void {
+    const hook = this.onRun;
+    if (!hook) {
+      return;
+    }
+    // Only failures carry stderr, truncated — the log needs the reason, not a
+    // transcript.
+    const err = failed && stderr ? stderr.trim().slice(0, 2000) : undefined;
+    try {
+      hook({
+        args,
+        exitCode,
+        failed,
+        durationMs: Date.now() - startedAt,
+        ...(err ? { stderr: err } : {}),
+      });
+    } catch {
+      // An observer must never break git execution.
+    }
+  }
+
+  /** Acquire a concurrency slot, awaiting a free one when at the limit. */
+  private acquire(): Promise<void> {
+    if (this.active < this.maxConcurrent) {
+      this.active++;
+      return Promise.resolve();
+    }
+    return new Promise<void>((resolve) => {
+      this.waiters.push(() => {
+        this.active++;
+        resolve();
+      });
+    });
+  }
+
+  private release(): void {
+    this.active--;
+    const next = this.waiters.shift();
+    if (next) {
+      next();
+    }
+  }
+
+  private spawnChild(args: string[]): ChildProcessWithoutNullStreams {
+    const argv = [...HARDENED_ARGS, ...args];
+    const env: NodeJS.ProcessEnv = {
+      ...process.env,
+      GIT_OPTIONAL_LOCKS: "0",
+      // Neither host has a terminal, so a git credential/passphrase prompt is
+      // an unanswerable question that blocks forever — a fetch/pull/push over
+      // HTTPS on a repo with no cached credential froze the sync UI with no
+      // way out. Fail fast instead; real credential HELPERS (osxkeychain,
+      // manager, GUI askpass) are unaffected — this only disables the
+      // read-from-the-tty fallback.
+      GIT_TERMINAL_PROMPT: "0",
+    };
+    // Recorded BEFORE the spawn: a child that hangs on an OS prompt never
+    // reaches onRun, and that is exactly the case worth reading afterwards.
+    auditSpawn({ bin: this.gitPath, args: argv, cwd: this.cwd, env });
+    const child = spawn(this.gitPath, argv, { cwd: this.cwd, env });
+    this.children.add(child);
+    return child;
+  }
+
+  /**
+   * Run git to completion, buffering stdout/stderr as utf8. Resolves with the
+   * exit code even when non-zero (the caller decides). Rejects if the process
+   * fails to spawn, or — when `opts.signal` aborts — kills the child (SIGTERM)
+   * and rejects with an AbortError (`err.name === "AbortError"`).
+   *
+   * When `opts.input` is set, that utf8 payload is written to the child's
+   * stdin which is then ended — used to feed dirty buffers to
+   * `git blame --contents -`. Without one, stdin is ended empty (feedStdin).
+   */
+  async run(
+    args: string[],
+    opts?: GitRunWithInputOptions,
+  ): Promise<GitRunResult> {
+    const signal = opts?.signal;
+    if (signal?.aborted) {
+      throw makeAbortError();
+    }
+
+    await this.acquire();
+
+    let child: ChildProcessWithoutNullStreams | undefined;
+    try {
+      return await new Promise<GitRunResult>((resolve, reject) => {
+        const startedAt = Date.now();
+        const spawned = this.spawnChild(args);
+        child = spawned;
+
+        feedStdin(spawned, opts?.input);
+
+        const stdout: Buffer[] = [];
+        const stderr: Buffer[] = [];
+        let settled = false;
+
+        const cleanup = () => {
+          if (signal) {
+            signal.removeEventListener("abort", onAbort);
+          }
+          this.children.delete(spawned);
+        };
+
+        const onAbort = () => {
+          if (settled) {
+            return;
+          }
+          settled = true;
+          spawned.kill("SIGTERM");
+          dropStdin(spawned);
+          cleanup();
+          reject(makeAbortError());
+        };
+
+        if (signal) {
+          signal.addEventListener("abort", onAbort, { once: true });
+        }
+
+        spawned.stdout.on("data", (chunk: Buffer) => stdout.push(chunk));
+        spawned.stderr.on("data", (chunk: Buffer) => stderr.push(chunk));
+
+        spawned.on("error", (err) => {
+          if (settled) {
+            return;
+          }
+          settled = true;
+          cleanup();
+          this.report(
+            args, null, true, startedAt,
+            Buffer.concat(stderr).toString("utf8") || err.message,
+          );
+          reject(err);
+        });
+
+        spawned.on("close", (code, killedBy) => {
+          if (settled) {
+            return;
+          }
+          settled = true;
+          cleanup();
+          // No exit code means a signal ended it: a failure, never a 0 (see
+          // signalExitCode). Still RESOLVED, not thrown — callers decide on
+          // the code, exactly as for any other non-zero exit.
+          const exit = code ?? signalExitCode(killedBy);
+          let err = Buffer.concat(stderr).toString("utf8");
+          if (code === null) err = err ? `${err.replace(/\s+$/, "")}\n${signalMessage(killedBy)}` : signalMessage(killedBy);
+          this.report(args, exit, exit !== 0, startedAt, err);
+          resolve({
+            stdout: Buffer.concat(stdout).toString("utf8"),
+            stderr: err,
+            code: exit,
+          });
+        });
+      });
+    } finally {
+      this.release();
+    }
+  }
+
+  /**
+   * Stream git stdout as utf8 chunks as they arrive, using a pull/queue pattern
+   * so stdout is never accumulated unbounded. Kills the child and ends the
+   * stream on abort (throwing an AbortError). A non-zero exit throws with the
+   * collected stderr so callers notice failures.
+   *
+   * `opts.input` is written to the child's stdin, which is then ended — and
+   * ended empty when there is no input, exactly as run() does (feedStdin).
+   * The graph's branch filter hands `git log --stdin` its refs this way,
+   * because on argv a few hundred of them outgrow Windows' command line.
+   *
+   * However the consumer stops — the signal aborts, it breaks out of its
+   * for-await, or it throws — the finally below kills a child that is still
+   * running and drops whatever of stdin is still unwritten, so nothing is left
+   * holding a pipe (or a concurrency slot) for a reader that has gone.
+   */
+  async *stream(
+    args: string[],
+    opts?: GitRunWithInputOptions,
+  ): AsyncGenerator<string> {
+    const signal = opts?.signal;
+    if (signal?.aborted) {
+      throw makeAbortError();
+    }
+
+    await this.acquire();
+
+    const startedAt = Date.now();
+    const spawned = this.spawnChild(args);
+    feedStdin(spawned, opts?.input);
+    const decoder = new TextDecoder("utf8");
+
+    // Pull/push queue: producers push chunks (or a terminal marker), the
+    // generator pulls one at a time.
+    const queue: string[] = [];
+    let resolveNext: (() => void) | undefined;
+    let ended = false;
+    let failure: Error | undefined;
+    let exitCode: number | null = null;
+    const stderr: Buffer[] = [];
+
+    const wake = () => {
+      const r = resolveNext;
+      resolveNext = undefined;
+      if (r) {
+        r();
+      }
+    };
+
+    const onAbort = () => {
+      if (ended) {
+        return;
+      }
+      failure = makeAbortError();
+      spawned.kill("SIGTERM");
+      ended = true;
+      wake();
+    };
+
+    if (signal) {
+      signal.addEventListener("abort", onAbort, { once: true });
+    }
+
+    spawned.stdout.on("data", (chunk: Buffer) => {
+      queue.push(decoder.decode(chunk, { stream: true }));
+      wake();
+    });
+    spawned.stderr.on("data", (chunk: Buffer) => stderr.push(chunk));
+
+    spawned.on("error", (err) => {
+      if (ended) {
+        return;
+      }
+      failure = err;
+      ended = true;
+      wake();
+    });
+
+    spawned.on("close", (code, killedBy) => {
+      if (ended) {
+        return;
+      }
+      // Killed by a signal (not our abort, which set `ended` first): the
+      // stream stopped part-way, and ending quietly would hand the caller a
+      // truncated history as though it were the whole of it.
+      exitCode = code ?? signalExitCode(killedBy);
+      if (code === null) {
+        failure = new Error(`git ${args.join(" ")}: ${signalMessage(killedBy)}`);
+      }
+      const tail = decoder.decode();
+      if (tail) {
+        queue.push(tail);
+      }
+      ended = true;
+      wake();
+    });
+
+    try {
+      while (true) {
+        if (queue.length > 0) {
+          yield queue.shift()!;
+          continue;
+        }
+        if (failure) {
+          throw failure;
+        }
+        if (ended) {
+          break;
+        }
+        await new Promise<void>((resolve) => {
+          resolveNext = resolve;
+        });
+      }
+
+      if (failure) {
+        throw failure;
+      }
+      if (exitCode !== null && exitCode !== 0) {
+        const message = Buffer.concat(stderr).toString("utf8").trim();
+        throw new Error(
+          `git ${args.join(" ")} exited with code ${exitCode}` +
+            (message ? `: ${message}` : ""),
+        );
+      }
+    } finally {
+      if (signal) {
+        signal.removeEventListener("abort", onAbort);
+      }
+      if (spawned.exitCode === null && spawned.signalCode === null) {
+        spawned.kill("SIGTERM");
+      }
+      dropStdin(spawned);
+      this.children.delete(spawned);
+      this.release();
+      // Report completed streams to the observer, but skip aborts (a superseded
+      // load — e.g. the user navigated away — isn't a meaningful "git command").
+      if (!(failure && failure.name === "AbortError")) {
+        this.report(
+          args,
+          exitCode,
+          !!failure || (exitCode !== null && exitCode !== 0),
+          startedAt,
+          Buffer.concat(stderr).toString("utf8") || failure?.message,
+        );
+      }
+    }
+  }
+
+  /** Kill any in-flight children. */
+  dispose(): void {
+    this.disposed = true;
+    for (const child of this.children) {
+      child.kill("SIGTERM");
+      dropStdin(child);
+    }
+    this.children.clear();
+  }
+
+  /** Whether dispose() has been called. */
+  get isDisposed(): boolean {
+    return this.disposed;
+  }
+}
