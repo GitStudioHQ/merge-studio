@@ -1,10 +1,14 @@
 {
   "compilerOptions": {
-    "module": "ESNext",
     "target": "ES2022",
-    "lib": ["ES2022", "DOM", "DOM.Iterable", "WebWorker"],
+    "module": "ESNext",
     "moduleResolution": "Bundler",
-    "types": ["node", "vscode"],
+    "lib": [
+      "ES2022",
+      "DOM",
+      "DOM.Iterable",
+      "WebWorker"
+    ],
     "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
@@ -12,8 +16,31 @@
     "resolveJsonModule": true,
     "isolatedModules": true,
     "sourceMap": true,
-    "forceConsistentCasingInFileNames": true
+    "forceConsistentCasingInFileNames": true,
+    "types": [
+      "node",
+      "vscode"
+    ],
+    "paths": {
+      "@gitstudio/engine/*": [
+        "./vendor/gitstudio/engine/src/*"
+      ],
+      "@gitstudio/git-service/*": [
+        "./vendor/gitstudio/git-service/src/*"
+      ],
+      "@gitstudio/host-bridge/*": [
+        "./vendor/gitstudio/host-bridge/src/*"
+      ],
+      "@gitstudio/webview-ui/*": [
+        "./vendor/gitstudio/webview-ui/src/*"
+      ],
+      "@gitstudio/merge-vscode/*": [
+        "./vendor/gitstudio/merge-vscode/src/*"
+      ]
+    }
   },
-  "include": ["src", "webview"],
-  "exclude": ["node_modules", "dist"]
+  "include": [
+    "src",
+    "test"
+  ]
 }

@@ -1,0 +1,4526 @@
+// <gitstudio-graph> — the virtualized commit-graph webview surface.
+//
+// A GitKraken/GitLens-grade history view: a scroll container of fixed-height
+// rows, only the visible window in the DOM (via @tanstack/virtual-core), each
+// row a CSS grid of [gutter SVG | ref chips | subject | author | date | sha].
+// Keyboard navigable, theme-native (all colors via --vscode-* or the lane
+// palette), and smooth at 50k+ rows. Lit owns the shell; the hot inner list is
+// rendered imperatively into a Lit-owned container so we never re-template
+// thousands of nodes — only the ~visible window is touched per frame.
+
+import { LitElement, html, css, nothing, type PropertyValues } from "lit";
+import { codiconStyles } from "../styles/codicons";
+import { hostTokens } from "../styles/hostTokens";
+import { RefTip, refTipStyles, tipAriaLabel, tipData } from "./refTip";
+import { AuthorTip, authorTipData, authorTipStyles } from "./authorTip";
+import {
+  legalGaps,
+  moveToGap,
+  isRealMove,
+  stopReason,
+} from "@gitstudio/engine/rebase/chain";
+import {
+  type ChipEntry,
+  fitRefs,
+  foldRefs,
+  fitRefsWidth,
+  wantedRefsWidth,
+  REF_CHIP_GAP,
+  legibleRefsWidth,
+} from "./refLayout";
+import {
+  Virtualizer,
+  observeElementRect,
+  observeElementOffset,
+  elementScroll,
+  type VirtualItem,
+} from "@tanstack/virtual-core";
+import type {
+  WireRow,
+  WireRef,
+  RowStat,
+  GraphRefEntry,
+  GraphRefFilter,
+  RefPreset,
+} from "@gitstudio/host-bridge/graphProtocol";
+import { renderRowGutterSVG, laneCenterX, lastDrawableLane } from "./gutter";
+import {
+  paletteForTheme,
+  observeGraphTheme,
+} from "./lanePalette";
+import { gravatarUrl, avatarHtml } from "./avatar";
+import { esc, relTime, absTime, DAY } from "./format";
+import {
+  type SearchScope,
+  SEARCH_SCOPES,
+  LS_SEARCH_SCOPE,
+  rowMatches,
+} from "./search";
+import {
+  REF_PRESETS,
+  activePreset,
+  addRefs,
+  chipCheckout,
+  groupRefs,
+  presetFilter,
+  presetUnavailable,
+  refDisplayName,
+  refFilterHint,
+  refFilterLabel,
+  removeRefs,
+  scrollKey,
+  toggleRef,
+} from "./refFilter";
+import { chipRefs, presetRefs, sameRefFilter } from "@gitstudio/host-bridge/graphRefFilter";
+import { COLUMN_DROP_TAIL_AT, INLINE_LIST_BELOW } from "../limits";
+
+// ── Layout constants (the visual contract; tuned to GitLens proportions) ─────
+const ROW_HEIGHT = 34;
+/** The commit subject never shrinks below this — metadata columns yield first. */
+const SUBJECT_MIN_WIDTH = 220;
+/**
+ * The narrowest the Branch/Tag track may get before it stops doing its job.
+ *
+ * A ref cell holds one chip plus a "+N" overflow pill, and the chip is a glyph,
+ * padding and a name. Below this the name starts ellipsising — measured at
+ * 107px, where "main" rendered 13 of the 27px it needs, which is a column that
+ * is present but no longer answers "which branch is this?". A floor, not a
+ * fixed width: the user's own dragged width still wins above it.
+ */
+const REFS_MIN_READABLE = 150;
+/**
+ * The width at which a commit message stops feeling cramped. Above the hard
+ * SUBJECT_MIN_WIDTH floor: the Branch/Tag track auto-fits only with whatever is
+ * left over ONCE the message has this much, so a wide window shows full refs
+ * and a narrow one spends its pixels on the message instead of on a track that
+ * most rows leave empty.
+ */
+const SUBJECT_COMFORT_WIDTH = 420;
+/**
+ * Below this the refs stop being a column and flow INLINE before the message —
+ * see the container query in the styles. Must match it.
+ */
+const INLINE_REFS_BELOW = 620;
+/** Compact ladder breakpoints, and the message floor each one uses. */
+const COMPACT_DROP_DATE_AT = 580;
+const COMPACT_DROP_AUTHOR_AT = 430;
+const SUBJECT_MIN_COMPACT_MID = 150;
+const SUBJECT_MIN_COMPACT_TIGHT = 120;
+/**
+ * Below this host width, column mode drops its Date and SHA tracks.
+ *
+ * The threshold is set by what the REFS column needs when the tail comes back,
+ * not by when the tail itself starts to feel tight. At 760 the tail returned
+ * ~36px too early: crossing it (a 1296px window) collapsed the branch/tag track
+ * from 168px to 87px and rendered zero readable characters in it, so WIDENING
+ * the window made a column narrower and emptied it. That put the dead band over
+ * exactly the maximised-laptop widths, and nothing on screen said the column had
+ * been starved — it just looked empty.
+ *
+ * Date and SHA are the right things to give up for it: both are still on the
+ * row's hover tooltip and in the details dock, and both can be turned back on
+ * from the Columns menu. A branch name has nowhere else to be.
+ */
+
+/** `:host([compact]) .content .refs { max-width }` — a share of the MESSAGE track. */
+const COMPACT_REFS_SHARE = 0.44;
+/** The sidebar rule's `.content .refs { max-width }` — a share of the row. */
+const SIDEBAR_REFS_SHARE = 0.58;
+const COL_WIDTH = 26;
+const NODE_RADIUS = 5;
+const OVERSCAN = 12;
+/** Author avatar diameter, px — sits ON the commit node, GitKraken-style. */
+const AVATAR_SIZE = 23;
+/** Left inset added to every lane so a node avatar at lane 0 isn't clipped. */
+const NODE_INSET = 16;
+/** Min gutter width so even a linear history reserves room for the avatar. */
+const MIN_GUTTER_WIDTH = 56;
+/** Cap the *rendered* gutter width so a pathological fan-out can't eat the row. */
+const MAX_GUTTER_COLUMNS = 16;
+/** Trigger a loadMore when within this many rows of the bottom. */
+const LOAD_MORE_THRESHOLD = 60;
+/** The widest a cursor-positioned menu (the commit menu, a chip's menu) can
+ *  render — the .gh-ctx max-width, and the W both menus clamp their x with,
+ *  so the shell never runs off the right edge under a long ref name. */
+const CTX_MENU_W = 240;
+/**
+ * How many ref chips render inline is decided by WIDTH alone — see refsHtml.
+ * There is deliberately no count cap: one used to sit here at 4, applied before
+ * any width test, so a commit carrying five refs kept its fifth folded behind
+ * the "+N" pill no matter how far you dragged the column (issue #11). Widening
+ * the column is the obvious thing to try, and it silently did nothing.
+ *
+ * Nothing needs a count to stay bounded: the track is clamped to the `refs`
+ * spec's max (360px) on both drag and load, and a chip cannot estimate narrower
+ * than 44px, so the fit tops out around seven chips on its own.
+ */
+/** The all-zeros sha marks the synthetic "uncommitted changes" (WIP) node. */
+const ZERO_SHA_RE = /^0{40}$/;
+
+// ── Resizable / toggleable columns ───────────────────────────────────────────
+// The row + colhead grids share a set of CSS custom properties on :host, so a
+// drag on a header reflows both. Each toggleable column has: a CSS var carrying
+// its track width, a default width, a min/max clamp for dragging, an id used in
+// the hidden-set + localStorage, and a `:host(.hide-<id>)` class that collapses
+// the track to 0 and hides the cells. Gutter + subject stay the flexible tracks.
+interface ColumnSpec {
+  /** Stable id: localStorage key suffix + hide-class + popover row. */
+  id: "graph" | "refs" | "changes" | "author" | "date" | "sha";
+  /** Human label for the Columns popover. */
+  label: string;
+  /** CSS custom property carrying this column's grid track width. */
+  cssVar: string;
+  /** Default track width in px. */
+  def: number;
+  /** Drag clamp, px. */
+  min: number;
+  max: number;
+  /** False = always shown (excluded from the Columns popover / hide set). */
+  hideable?: boolean;
+}
+
+const COLUMN_SPECS: readonly ColumnSpec[] = [
+  // The graph gutter auto-sizes to the lane count; a manual resize overrides
+  // that (dbl-click / Home on the grip restores auto). Never hideable.
+  { id: "graph", label: "Graph", cssVar: "--gs-gutter-w", def: MIN_GUTTER_WIDTH, min: MIN_GUTTER_WIDTH, max: 480, hideable: false },
+  // Branch/Tag is a fixed, resizable track (not auto-fit) so subjects start at
+  // the same x on every row — a real scanability win, GitLens-style. Default is
+  // lean so empty-ref rows don't waste width; drag wider for busy ref sets.
+  { id: "refs", label: "Branch / Tag", cssVar: "--col-refs-w", def: 260, min: 60, max: 640 },
+  { id: "changes", label: "Changes", cssVar: "--col-changes-w", def: 100, min: 76, max: 220 },
+  { id: "author", label: "Author", cssVar: "--col-author-w", def: 112, min: 76, max: 240 },
+  { id: "date", label: "Date", cssVar: "--col-date-w", def: 84, min: 58, max: 170 },
+  { id: "sha", label: "SHA", cssVar: "--col-sha-w", def: 66, min: 58, max: 140 },
+];
+const COLUMN_BY_ID = new Map<string, ColumnSpec>(
+  COLUMN_SPECS.map((c) => [c.id, c]),
+);
+/** Default width (px) for a column id — used to seed the grid template. */
+function col(id: ColumnSpec["id"]): number {
+  return COLUMN_BY_ID.get(id)!.def;
+}
+/** Max width (px) for a column id — the grid clamps its track to this. */
+function colMax(id: ColumnSpec["id"]): number {
+  return COLUMN_BY_ID.get(id)!.max;
+}
+
+/** localStorage keys (work in both the Electron renderer and VS Code webviews). */
+const LS_COL_WIDTHS = "gitstudio.graph.cols.widths";
+const LS_COL_HIDDEN = "gitstudio.graph.cols.hidden";
+
+export type GraphAction =
+  | { type: "select"; sha: string }
+  /**
+   * The row that is ALREADY selected was clicked again. Nothing about the
+   * selection changed, so there is nothing to fetch — it only means "show me
+   * this", which is how a closed details dock gets reopened with the mouse.
+   */
+  | { type: "showDetails"; sha: string }
+  | { type: "open"; sha: string }
+  | { type: "context"; sha: string; x: number; y: number }
+  | { type: "menuAction"; sha: string; id: string }
+  /** A ref chip (branch / remote / tag label) was clicked — a host with a
+   *  page for the ref navigates there (the desktop's Branches view); one with
+   *  none opens the chip's own menu at (x, y) through openRefMenu (the
+   *  extension). `remotes` are the twins folded into the chip, `twins` their
+   *  full names; `name` is git's short form (what the desktop's Branches view
+   *  lists), `fullName` the ref's full name. Never a row selection. x/y are
+   *  absent from a "+N" card row: that card sits where the menu would. */
+  | {
+      type: "refClick";
+      sha: string;
+      name: string;
+      fullName: string;
+      kind: string;
+      x?: number;
+      y?: number;
+      remotes?: string[];
+      twins?: string[];
+    }
+  | { type: "loadMore" }
+  | { type: "refresh" }
+  | { type: "requestStats"; shas: string[] }
+  /**
+   * A drag reordered the rewritable chain. `order` is the WHOLE chain in its
+   * new display order — not a delta — so the host never replays the drag.
+   */
+  | { type: "reorder"; order: string[] }
+  /** The Branches picker changed the filter (issue #30): rebuild the graph
+   *  around these fully-qualified refs (null = all), and remember it. */
+  | { type: "setRefFilter"; refs: GraphRefFilter }
+  /** "Checkout <ref>" from a chip's own menu — the host runs it as it runs
+   *  the commit menu's item of the same name (a tag asks first). `fullName`
+   *  is the ref resolved through the picker's list (chipRefs): the chip's
+   *  own name is git's SHORT form, which names a revision rather than a
+   *  branch the moment a tag shares it. */
+  | { type: "checkoutRef"; sha: string; name: string; kind: WireRef["kind"]; fullName: string };
+
+/** One item in the in-graph commit actions popover (from the host). */
+export interface CommitMenuItem {
+  id: string;
+  label: string;
+  icon?: string;
+  danger?: boolean;
+  sep?: boolean;
+}
+
+export class CommitGraph extends LitElement {
+  // Declared imperatively (no decorators) so the build is independent of the
+  // experimental-vs-standard decorator tsconfig toggle. `attribute: false`
+  // keeps these as DOM properties, set by the webview entry, never reflected.
+  static properties = {
+    rows: { attribute: false },
+    totalColumns: { attribute: false },
+    hasMore: { attribute: false },
+    status: { attribute: false },
+    errorMessage: { attribute: false },
+    head: { attribute: false },
+    refFilter: { attribute: false },
+    refPreset: { attribute: false },
+    refList: { attribute: false },
+    palette: { state: true },
+    selectedSha: { state: true },
+    searchQuery: { state: true },
+    searchScope: { state: true },
+    columnsOpen: { state: true },
+    scopeOpen: { state: true },
+    branchesOpen: { state: true },
+    branchQuery: { state: true },
+    commitMenu: { state: true },
+    chipMenu: { state: true },
+  };
+
+  static styles = [hostTokens, codiconStyles, refTipStyles, authorTipStyles, css`
+    :host {
+      display: flex;
+      flex-direction: column;
+      height: 100%;
+      width: 100%;
+      overflow: hidden;
+      /* Left inset shared by a header label and the cell under it, so text
+         never sits flush against the column divider AND the two stay aligned.
+         Applied to both or neither — putting it on the header alone drifts the
+         labels off the data they name. */
+      --gs-cell-inset: 9px;
+      /* Hole color punched through graph nodes = the surface behind the row.
+         Falls through to the editor bg; hover/selected rows override it so the
+         node hole tracks the row tint. (The --gs-* scale is inherited from the
+         document via graph.css @import "./tokens.css" — only this graph-specific
+         var is declared locally.) */
+      --gs-graph-node-hole: var(--vscode-editor-background, #1e1e1e);
+      color: var(--vscode-foreground);
+      font-family: var(--vscode-font-family);
+      font-size: var(--vscode-font-size, 13px);
+    }
+
+    /* ── Header bar: current branch + loaded count + nav hints ──────────── */
+    .gheader {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex: 0 0 auto;
+      height: 36px;
+      padding: 0 12px;
+      border-bottom: 1px solid color-mix(in srgb,
+        var(--vscode-foreground) 12%, transparent);
+      background: color-mix(in srgb,
+        var(--vscode-foreground) 3%, var(--vscode-editor-background));
+      user-select: none;
+    }
+    /* Detached HEAD is a revision, not a branch. Amber + a warning glyph +
+       monospace, so it is obvious you are not on a branch — the old label
+       literally read "detached HEAD", which told you the state but not WHERE
+       you were. */
+    .gh-branch.is-detached {
+      color: var(--gs-amber);
+      background: color-mix(in srgb, var(--gs-amber) 13%, transparent);
+      border-color: color-mix(in srgb, var(--gs-amber) 32%, transparent);
+    }
+    .gh-branch.is-detached .nm {
+      font-family: var(--vscode-editor-font-family, monospace);
+      font-weight: 600;
+    }
+    .gh-branch {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      max-width: 46%;
+      height: 22px;
+      padding: 0 10px 0 8px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 600;
+      /* The link blue pulled a step toward the foreground, like .chip-head:
+         on its own accent wash the plain blue was 3.94:1 in light; 15% is
+         4.62:1 there, and still reads as the accent. */
+      color: color-mix(in srgb, var(--vscode-textLink-foreground, var(--gs-accent)) 85%, var(--vscode-foreground));
+      background: color-mix(in srgb, var(--gs-accent) 13%, transparent);
+      border: 1px solid color-mix(in srgb, var(--gs-accent) 30%, transparent);
+    }
+    .gh-branch .codicon { font-size: 13px; flex: 0 0 auto; }
+    .gh-branch .nm {
+      min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .gh-count {
+      font-size: 11.5px;
+      color: var(--gs-fg-muted);
+      font-variant-numeric: tabular-nums;
+      white-space: nowrap;
+    }
+    .gh-spacer { flex: 1 1 auto; }
+
+    /* ── Search box + match nav ──────────────────────────────────────────── */
+    .gh-search {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      height: 26px;
+      min-width: 200px;
+      max-width: 460px;
+      flex: 0 1 360px;
+      padding: 0 4px 0 9px;
+      border-radius: 6px;
+      border: 1px solid color-mix(in srgb, var(--vscode-foreground) 14%, transparent);
+      background: color-mix(in srgb, var(--vscode-foreground) 5%, var(--vscode-editor-background));
+      transition: border-color 140ms ease;
+    }
+    .gh-search:focus-within {
+      border-color: var(--vscode-focusBorder);
+    }
+    .gh-search > .codicon-search {
+      font-size: 13px;
+      color: var(--gs-fg-muted);
+      flex: 0 0 auto;
+    }
+    .gh-input,
+    .gh-pop-filter > input {
+      flex: 1 1 auto;
+      min-width: 0;
+      height: 100%;
+      border: none;
+      outline: none;
+      background: transparent;
+      color: var(--vscode-foreground);
+      font-family: var(--vscode-font-family);
+      font-size: 12px;
+    }
+    .gh-input::placeholder,
+    .gh-pop-filter > input::placeholder { color: color-mix(in srgb, var(--vscode-foreground) 42%, transparent); }
+    .gh-results {
+      flex: 0 0 auto;
+      font-size: 11px;
+      font-variant-numeric: tabular-nums;
+      color: var(--gs-fg-muted);
+      padding: 0 2px;
+      white-space: nowrap;
+    }
+    .gh-results.none { color: var(--vscode-charts-red, #f14c4c); }
+    .gh-iconbtn {
+      flex: 0 0 auto;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 22px;
+      height: 22px;
+      padding: 0;
+      border: none;
+      border-radius: var(--gs-radius-sm);
+      background: transparent;
+      color: var(--gs-fg-muted);
+      cursor: pointer;
+      transition: background var(--gs-motion-fast) var(--gs-ease), color var(--gs-motion-fast) var(--gs-ease);
+    }
+    .gh-iconbtn:hover { background: var(--gs-hover); color: var(--gs-fg); }
+    .gh-iconbtn:active { background: color-mix(in srgb, var(--gs-fg) 12%, transparent); }
+    .gh-iconbtn:focus-visible {
+      outline: 1px solid var(--gs-accent);
+      outline-offset: -1px;
+      background: var(--gs-hover);
+      color: var(--gs-fg);
+    }
+    .gh-iconbtn .codicon { font-size: 14px; }
+    .gh-iconbtn[aria-expanded="true"] {
+      background: var(--vscode-list-hoverBackground);
+      color: var(--vscode-foreground);
+    }
+    .gh-refresh { margin-left: 2px; }
+    /* A refresh over an existing list keeps the list and says so here instead. */
+    .gh-refresh.is-refreshing { opacity: 0.6; cursor: progress; }
+    .gh-refresh.is-refreshing .codicon { animation: gh-spin 1s linear infinite; }
+    @keyframes gh-spin { to { transform: rotate(360deg); } }
+    /* The app's global reduced-motion rule cannot reach into this shadow root. */
+    @media (prefers-reduced-motion: reduce) {
+      .gh-refresh.is-refreshing .codicon { animation: none; }
+    }
+
+    /* ── Anchored popover/menu shell (Columns + search scope share it) ────── */
+    .gh-anchor { position: relative; flex: 0 0 auto; display: inline-flex; }
+    .gh-pop {
+      position: absolute;
+      top: calc(100% + 6px);
+      right: 0;
+      z-index: 20;
+      min-width: 176px;
+      padding: 5px;
+      border-radius: 8px;
+      background: var(--vscode-menu-background,
+        color-mix(in srgb, var(--vscode-foreground) 6%, var(--vscode-editor-background)));
+      border: 1px solid var(--vscode-menu-border,
+        color-mix(in srgb, var(--vscode-foreground) 18%, transparent));
+      box-shadow: 0 6px 22px color-mix(in srgb, #000 38%, transparent);
+      color: var(--vscode-menu-foreground, var(--vscode-foreground));
+      animation: gh-pop-in 120ms ease;
+    }
+    @keyframes gh-pop-in {
+      from { opacity: 0; transform: translateY(-3px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .gh-pop { animation: none; }
+    }
+    /* The commit context popover is positioned at the cursor (fixed), not
+       anchored to a header control. Its max-width is the W the two menus
+       clamp their x with (renderCommitMenu, renderChipMenu), border-box so
+       the rendered shell IS that wide and not that plus padding: a
+       "Checkout origin/<long name>" item is a ref name, and unbounded it
+       widened the menu past the clamp and off the pane. The item's label
+       ellipsizes instead; the row's tooltip and the chip still say it all. */
+    .gh-pop.gh-ctx {
+      position: fixed;
+      top: auto;
+      right: auto;
+      box-sizing: border-box;
+      min-width: 214px;
+      max-width: min(${CTX_MENU_W}px, calc(100vw - 12px));
+    }
+    /* The commit menu's title is "<sha7> · <subject>", and a subject can run
+       to 120 characters: capped at ${CTX_MENU_W}px the title wrapped into a
+       five-line uppercase header. One line, ellipsized — the rail's menu
+       header already reads this way. */
+    .gh-pop.gh-ctx .gh-pop-title {
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .gh-pop.gh-ctx .gh-menuitem .lbl {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .gh-menuitem.danger { color: var(--vscode-errorForeground, #e15a5a); }
+    .gh-menuitem.danger:hover {
+      background: color-mix(in srgb, var(--vscode-errorForeground, #e15a5a) 16%, transparent);
+      color: var(--vscode-errorForeground, #e15a5a);
+    }
+    .gh-pop-title {
+      padding: 4px 8px 5px;
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      /* Not mixed toward transparent (4.11:1 dark, 2.93:1 light), and no
+         longer a fixed 70% into the editor background either: that read
+         4.61:1 on the desktop's ink and 3.18:1 in VS Code Light+, whose
+         #616161 leaves no room to fade. --gs-menu-muted (hostTokens) is AA
+         on both — measured in popoverContrast.test.ts and contrast.mjs. */
+      color: var(--gs-menu-muted);
+      user-select: none;
+    }
+    .gh-menuitem {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      width: 100%;
+      height: 28px;
+      padding: 0 8px;
+      border: none;
+      border-radius: 5px;
+      background: transparent;
+      color: inherit;
+      font-family: var(--vscode-font-family);
+      font-size: 12px;
+      text-align: left;
+      cursor: pointer;
+    }
+    .gh-menuitem:hover,
+    .gh-menuitem:focus-visible {
+      background: var(--vscode-menu-selectionBackground, var(--vscode-list-hoverBackground));
+      color: var(--vscode-menu-selectionForeground, var(--vscode-foreground));
+      outline: none;
+    }
+    .gh-menuitem .codicon-check {
+      flex: 0 0 auto;
+      font-size: 13px;
+      opacity: 0;
+    }
+    .gh-menuitem[aria-checked="true"] .codicon-check { opacity: 1; }
+    .gh-menuitem .lbl { flex: 1 1 auto; }
+    .gh-menuitem[disabled] {
+      opacity: 0.5;
+      cursor: default;
+    }
+    .gh-menuitem[disabled]:hover { background: transparent; }
+    .gh-pop-sep {
+      height: 1px;
+      margin: 4px 4px;
+      background: color-mix(in srgb, var(--vscode-foreground) 12%, transparent);
+    }
+    /* The title's mix, for the title's reason: 45% toward transparent read
+       2.51:1 on the light menu. */
+    .gh-pop-hint {
+      padding: 3px 8px 4px;
+      font-size: 10.5px;
+      color: var(--gs-menu-muted);
+    }
+
+    /* ── Search scope trigger (segmented-style button inside the search box) ── */
+    .gh-scope {
+      display: inline-flex;
+      align-items: center;
+      gap: 3px;
+      height: 20px;
+      padding: 0 5px 0 6px;
+      margin-right: 1px;
+      border: none;
+      border-radius: var(--gs-radius-sm);
+      background: color-mix(in srgb, var(--gs-fg) 8%, transparent);
+      color: var(--gs-fg);
+      font-family: var(--gs-font-ui);
+      font-size: 11px;
+      white-space: nowrap;
+      cursor: pointer;
+      flex: 0 0 auto;
+      transition: background var(--gs-motion-fast) var(--gs-ease);
+    }
+    .gh-scope:hover { background: color-mix(in srgb, var(--gs-fg) 14%, transparent); }
+    .gh-scope:focus-visible { outline: 1px solid var(--gs-accent); outline-offset: 1px; }
+    .gh-scope .codicon-filter { font-size: 11px; opacity: 0.8; }
+    .gh-scope .codicon-chevron-down { font-size: 11px; opacity: 0.7; margin-left: -1px; }
+    /* Scoped: the accent wash, and the button's own ink (--gs-fg, from
+       .gh-scope) on it. The accent's link-blue read 4.00:1 there in light. */
+    .gh-scope.scoped {
+      background: color-mix(in srgb, var(--gs-accent) 22%, transparent);
+    }
+    .gh-scope-pop { min-width: 150px; }
+    /* The scope popover anchors to the search box's scope button (left-ish). */
+    .gh-scope-pop { right: auto; left: 0; }
+
+    /* ── Branches picker (issue #30): the filter trigger + its popover ─────
+       The trigger is the scope button's twin, sized for the toolbar; the
+       popover is the shared shell with a presets row, a filter box and a
+       grouped checkbox list. Everything here is an existing token or mix. */
+    .gh-branches {
+      height: 22px;
+      padding: 0 6px 0 8px;
+      gap: 5px;
+      margin-right: 0;
+      max-width: 240px;
+    }
+    .gh-branches .codicon-git-branch { font-size: 12px; opacity: 0.85; }
+    .gh-branches .lbl {
+      min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    /* Anchored to the trigger's right edge and opening leftwards, like the
+       Columns popover: the header's spare width is on that side. Never taller
+       than the pane below the header: the bottom panel can be 200px tall, and
+       a popover that ran off it would leave the Tags group unreachable. The
+       two max-heights here are the first paint's; fitBranchesPopover then
+       measures the room the host really has (its bottom, less a dock overlay
+       it publishes as --dock-reserve) and sets both inline. */
+    .gh-branches-pop {
+      min-width: 268px;
+      max-width: 340px;
+      max-height: calc(100vh - 54px);
+      overflow-y: auto;
+      scrollbar-width: thin;
+    }
+    /* Opening leftwards runs off the pane once the trigger sits within a
+       shell's width of the left edge — a bottom panel with the details pane
+       open (42% of it) leaves a 580–740px graph pane with the trigger at
+       ~235px, and the presets were cut. fitBranchesPopover measures and
+       flips it rightwards; the narrow rule below does the same by width. */
+    .gh-branches-pop.open-right { right: auto; left: 0; }
+    .gh-presets {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 4px;
+      padding: 2px 4px 7px;
+    }
+    .gh-preset {
+      height: 22px;
+      padding: 0 9px;
+      border: 1px solid color-mix(in srgb, var(--vscode-foreground) 14%, transparent);
+      border-radius: 999px;
+      background: transparent;
+      color: inherit;
+      font-family: var(--vscode-font-family);
+      font-size: 11px;
+      white-space: nowrap;
+      cursor: pointer;
+    }
+    .gh-preset:hover { background: var(--gs-hover); }
+    .gh-preset:focus-visible { outline: 1px solid var(--gs-accent); outline-offset: 1px; }
+    /* The same wash the scoped trigger and the current-branch pill wear — and
+       the menu's own ink on it, not the accent's. Link-blue on a violet wash
+       read 3.34:1 in light (link-blue on the bare light menu is only 4.40:1);
+       the wash and its border say "active" on their own. */
+    .gh-preset.active {
+      background: color-mix(in srgb, var(--gs-accent) 22%, transparent);
+      border-color: color-mix(in srgb, var(--gs-accent) 30%, transparent);
+    }
+    .gh-preset[disabled] { opacity: 0.5; cursor: default; }
+    .gh-preset[disabled]:hover { background: transparent; }
+    /* The list's filter box: the search box, one size down. */
+    .gh-pop-filter {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      height: 26px;
+      margin: 0 4px 4px;
+      padding: 0 8px;
+      border-radius: 6px;
+      border: 1px solid color-mix(in srgb, var(--vscode-foreground) 14%, transparent);
+      background: color-mix(in srgb, var(--vscode-foreground) 5%, var(--vscode-editor-background));
+    }
+    .gh-pop-filter:focus-within { border-color: var(--vscode-focusBorder); }
+    .gh-pop-filter > .codicon { font-size: 12px; color: var(--gs-fg-muted); flex: 0 0 auto; }
+    /* The list scrolls first, so the presets, the box and the hint stay put
+       while the pane has the room (~230px of chrome around the list); below
+       that the shell above scrolls as a whole rather than clipping. */
+    .gh-pop-list {
+      max-height: max(56px, min(300px, calc(100vh - 230px)));
+      overflow-y: auto;
+      overflow-x: hidden;
+      scrollbar-width: thin;
+    }
+    .gh-pop-list .gh-pop-title { padding-top: 6px; }
+    .gh-menuitem .gh-ref-kind { flex: 0 0 auto; font-size: 12px; opacity: 0.75; }
+    .gh-menuitem .lbl.gh-ref-name {
+      min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    /* "current", set beside the pinned branch in the muted title colour —
+       the title's token, for the title's reason (see .gh-pop-title). */
+    .gh-menuitem .gh-ref-cur {
+      flex: 0 0 auto;
+      font-size: 10px;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      color: var(--gs-menu-muted);
+    }
+    .gh-menuitem:hover .gh-ref-cur,
+    .gh-menuitem:focus-visible .gh-ref-cur { color: inherit; opacity: 0.8; }
+
+    /* Search highlight: matches glow, the rest recede. */
+    .row.is-match {
+      background: color-mix(in srgb, var(--vscode-charts-yellow, #e2c08d) 12%, transparent);
+      box-shadow: inset 2px 0 0 var(--vscode-charts-yellow, #e2c08d);
+    }
+    .row.is-nomatch .subject,
+    .row.is-nomatch .refs,
+    .row.is-nomatch .changes,
+    .row.is-nomatch .meta { opacity: 0.4; }
+    .row.is-nomatch .avatar { opacity: 0.45; }
+
+    @container (max-width: 560px) {
+      .gh-search { min-width: 130px; flex-basis: 200px; }
+      /* keep the scope trigger icon-only when space is tight */
+      .gh-scope > span:not(.codicon) { display: none; }
+      /* The Branches trigger is icon-only here too and sits well left of
+         centre, so its popover opens rightwards — leftwards it would run off
+         the pane. Capped to the pane besides. */
+      .gh-branches-pop {
+        right: auto;
+        left: 0;
+        min-width: min(268px, calc(100cqw - 24px));
+        max-width: calc(100cqw - 24px);
+      }
+    }
+    @container (max-width: 420px) { .gh-count { display: none; } }
+    /* In a genuinely narrow sidebar the "also on origin" cloud tail costs ~14px
+       to restate something the row already implies — and it was the reason the
+       current branch rendered as "m… ☁" instead of "main". Drop the tail, keep
+       the name. Declared on the element (never on :host — a container cannot
+       match its own container query). */
+    @container (max-width: 480px) { .chip .tail { display: none; } }
+
+    /* ── The shared 7-track grid (colhead + every row reference it) ──────
+       Gutter + subject are the flexible tracks; the rest are CSS vars so a
+       header drag reflows the whole list, and a hidden column collapses to 0.
+       Defaults live in the :host var declarations below. */
+    :host {
+      /* Size queries below measure THIS element, not the window. In the
+         bottom-panel split the graph is only a fraction of the webview, so
+         viewport media queries never fired and the subject column collapsed. */
+      container-type: inline-size;
+      /* The MESSAGE is the point of a commit list, so it gets a hard floor and
+         the metadata yields to it: every fixed track is minmax(0, …) so it can
+         give width back when space runs short. Rigid tracks plus a
+         minmax(0, 1fr) subject is what let saved column widths starve the
+         message down to "mai…" on a wide window. */
+      --gs-grid:
+        var(--gs-gutter-w, ${MIN_GUTTER_WIDTH}px)
+        minmax(0, clamp(0px, var(--col-refs-w, ${col("refs")}px), ${colMax("refs")}px))
+        minmax(${SUBJECT_MIN_WIDTH}px, 1fr)
+        minmax(0, var(--col-changes-w, ${col("changes")}px))
+        minmax(0, var(--col-author-w, ${col("author")}px))
+        minmax(0, var(--col-date-w, ${col("date")}px))
+        minmax(0, var(--col-sha-w, ${col("sha")}px));
+    }
+    /* ── Compact mode (the bottom panel) ────────────────────────────────────
+       A short, wide surface. Two things wasted space here: a fixed Branch/Tag
+       track that sat empty on most rows, and a wide gap between the message and
+       the trailing metadata. So in compact the refs flow INLINE just before the
+       message (a ref-less commit uses the full width), the SHA track goes away
+       (it is right there in the details pane), and what is left — changes /
+       author / date — forms one quiet cluster on the right. The message leads;
+       everything else recedes. */
+    :host([compact]) {
+      --gs-grid:
+        var(--gs-gutter-w, ${MIN_GUTTER_WIDTH}px)
+        minmax(${SUBJECT_MIN_WIDTH}px, 1fr)
+        minmax(0, var(--col-changes-w, 84px))
+        minmax(0, var(--col-author-w, 112px))
+        minmax(0, var(--col-date-w, 64px));
+    }
+    :host([compact]) .colhead .ch-refs,
+    :host([compact]) .colhead .ch-sha,
+    :host([compact]) .row .sha { display: none; }
+    /* Compact's tracks are graph | message | changes | author | date, so four
+       of the six grips land on a real boundary and stay draggable. (The claim
+       they "would sit on the wrong boundaries" only held for the refs grip,
+       whose cell is hidden here anyway — and a short panel is precisely where
+       width is scarce and re-balancing matters most.) */
+    :host([compact]) .col-resize[data-col="refs"] { display: none; }
+    /* Date is compact's last track: its right-edge grip divides nothing. */
+    :host([compact]) .col-resize[data-col="date"] { display: none; }
+    :host([compact]) .content {
+      display: flex; align-items: center; gap: 7px; min-width: 0;
+    }
+    :host([compact]) .content .refs {
+      display: inline-flex; flex: 0 0 auto; min-width: 0;
+      max-width: ${Math.round(COMPACT_REFS_SHARE * 100)}%; margin: 0; padding: 0;
+    }
+    /* The row carrying the current HEAD gets a wider ref budget. At 44% the
+       cell clipped the current-branch chip mid-glyph (no ellipsis — the chip is
+       already at its own max-width, so the CELL was the thing overflowing), and
+       "main" rendered as "mai". This is the one row where the ref outranks the
+       subject for attention, so it may borrow the space. Degrades silently to
+       44% wherever :has() is unsupported. */
+    :host([compact]) .content .refs:has(.chip-current) {
+      max-width: 62%;
+      /* The CELL never shrinks, but the CHIP inside it still can. Any shrink at
+         all on the cell put the chip 2-3px under its natural width and tripped
+         the ellipsis, so "main" read as "m…". Locking the chip instead (tried
+         first) clipped it mid-glyph, because then the cell was the thing
+         overflowing. Lock the cell, keep the chip fluid: the subject absorbs
+         the squeeze, and once max-width binds the chip ellipsizes cleanly. */
+      flex-shrink: 0;
+    }
+    /* No refs → no chip box → no leading gap. */
+    :host([compact]) .content .refs:empty { display: none; }
+    :host([compact]) .content .subject { flex: 1 1 auto; min-width: 0; }
+    /* Metadata recedes: smaller, dimmer, hugging the right edge. */
+    :host([compact]) .row .author,
+    :host([compact]) .row .date { font-size: 11px; opacity: 0.72; }
+    /* No opacity here: the colour above already carries the muting, and
+       stacking 0.66 on top of it put the compact header back under AA. */
+    :host([compact]) .colhead { font-size: 10px; letter-spacing: 0.06em; }
+    /* The header and the rows must share a padding-right, or their grid tracks
+       resolve against different widths and every compact column sits 2px off
+       the label naming it. */
+    :host([compact]) .row,
+    :host([compact]) .colhead { padding-right: 10px; }
+
+    /* refs + subject share a wrapper. In column mode it is display:contents so
+       they behave as their own grid tracks; in the sidebar (inline) mode it
+       becomes a flex box so the chips flow INLINE before the message. */
+    .content { display: contents; min-width: 0; }
+
+    /* ── Responsive: in a narrow host (the Commits SIDEBAR view) drop trailing
+       columns from the right so the commit SUBJECT always has room. You must be
+       able to READ commit messages even in a slim sidebar — the graph, refs and
+       subject stay; date → sha → author → changes fall away as it narrows. The
+       hidden data is still on the row's hover tooltip and in the details dock. */
+    @container (max-width: ${COLUMN_DROP_TAIL_AT}px) {
+      /* NB: declared on the consumers, not :host — :host is the query container
+         and an element cannot match its own container query.
+         :host(:not([compact])) is NOT optional. Compact is its own responsive
+         design and defines --gs-grid on :host; a custom property declared on
+         the ELEMENT beats one inherited from the host, so without this guard
+         these rules silently replaced the compact grid with one that still had
+         a Branch/Tag track — while compact hides the Branch/Tag CELL. Every
+         column then sat one track to the left: the commit message rendered
+         inside the ~60px ref track and CHANGES took the 1fr. */
+      :host(:not([compact])) .colhead,
+      :host(:not([compact])) .row {
+        --gs-grid:
+          var(--gs-gutter-w, ${MIN_GUTTER_WIDTH}px)
+          minmax(0, clamp(0px, var(--col-refs-w, ${col("refs")}px), 300px))
+          minmax(${SUBJECT_MIN_WIDTH}px, 1fr)
+          minmax(0, var(--col-changes-w, ${col("changes")}px))
+          minmax(0, var(--col-author-w, ${col("author")}px));
+      }
+      :host(:not([compact])) .colhead .ch-date,
+      :host(:not([compact])) .colhead .ch-sha,
+      :host(:not([compact])) .row .date,
+      :host(:not([compact])) .row .sha { display: none; }
+      /* The cells are gone, but their grips are absolutely positioned inside
+         them and survived as 0x0 hit targets — a handle you can see the cursor
+         change on but can never drag. Author becomes the last visible column
+         here, so it must not keep a trailing grip either. */
+      :host(:not([compact])) .colhead .col-resize[data-col="date"],
+      :host(:not([compact])) .colhead .col-resize[data-col="author"] { display: none; }
+    }
+    /* ── Still a table, just a narrower one ─────────────────────────────────
+       Between the inline floor and the tail drop, the two things that identify
+       a commit at a glance — the graph gutter and the Branch/Tag column — are
+       the LAST to go, not the first. Only the trailing metadata falls away.
+
+       This tier did not exist: below 860 the layout kept Changes and Author
+       (~200px of the width) and then, at 620, threw the header and the whole
+       Branch/Tag COLUMN away in one step. So the columns worth keeping were
+       sacrificed to two the reader can get from the details panel anyway. */
+    @container (max-width: ${COLUMN_DROP_TAIL_AT - 200}px) {
+      :host(:not([compact])) .colhead,
+      :host(:not([compact])) .row {
+        --gs-grid:
+          var(--gs-gutter-w, ${MIN_GUTTER_WIDTH}px)
+          minmax(0, clamp(${REFS_MIN_READABLE}px, var(--col-refs-w, ${col("refs")}px), 240px))
+          minmax(${Math.round(SUBJECT_MIN_WIDTH * 0.5)}px, 1fr);
+      }
+      :host(:not([compact])) .colhead .ch-changes,
+      :host(:not([compact])) .colhead .ch-author,
+      :host(:not([compact])) .row .changes,
+      :host(:not([compact])) .row .author { display: none; }
+      /* Their grips would survive as 0x0 hit targets otherwise. */
+      :host(:not([compact])) .colhead .col-resize[data-col="changes"],
+      :host(:not([compact])) .colhead .col-resize[data-col="refs"][data-invert="0"] { display: none; }
+    }
+
+    /* Compact narrowing, on compact's OWN grid — date goes first, then author,
+       so the message keeps the width. Mirrors the column-mode ladder above
+       without ever reintroducing a Branch/Tag track (refs flow inline here). */
+    @container (max-width: ${COMPACT_DROP_DATE_AT}px) {
+      :host([compact]) .colhead,
+      :host([compact]) .row {
+        --gs-grid:
+          var(--gs-gutter-w, ${MIN_GUTTER_WIDTH}px)
+          minmax(${SUBJECT_MIN_COMPACT_MID}px, 1fr)
+          minmax(0, var(--col-changes-w, 84px))
+          minmax(0, var(--col-author-w, 112px));
+      }
+      :host([compact]) .colhead .ch-date,
+      :host([compact]) .row .date { display: none; }
+      /* Author is last now, so its grip divides nothing. */
+      :host([compact]) .col-resize[data-col="author"] { display: none; }
+    }
+    @container (max-width: ${COMPACT_DROP_AUTHOR_AT}px) {
+      :host([compact]) .colhead,
+      :host([compact]) .row {
+        --gs-grid:
+          var(--gs-gutter-w, ${MIN_GUTTER_WIDTH}px)
+          minmax(${SUBJECT_MIN_COMPACT_TIGHT}px, 1fr)
+          minmax(0, var(--col-changes-w, 84px));
+      }
+      :host([compact]) .colhead .ch-author,
+      :host([compact]) .row .author { display: none; }
+      :host([compact]) .col-resize[data-col="changes"][data-invert="0"] { display: none; }
+    }
+
+    /* ── Sidebar (inline) mode ──────────────────────────────────────────────
+       Below INLINE_LIST_BELOW the refs stop being a fixed column — they flow
+       INLINE right before the message, so a commit with no refs uses the FULL
+       width instead of starting behind a ~120px empty gap. The trailing
+       columns and their handles go; the HEADER stays, labelling what is left.
+       It reads as a clean commit list, not a cramped spreadsheet. */
+    @container (max-width: ${INLINE_LIST_BELOW}px) {
+      /* Same reasons as above, compact guard included. */
+      :host(:not([compact])) .colhead,
+      :host(:not([compact])) .row {
+        --gs-grid:
+          var(--gs-gutter-w, ${MIN_GUTTER_WIDTH}px)
+          minmax(0, 1fr);
+      }
+      /* :host-qualified so these beat the later base .colhead/.col-resize
+         rules on specificity, not just source order.
+         Compact is excluded: it is a deliberate COLUMN layout that happens to be
+         short, and it keeps its header (and therefore its resize levers) down to
+         its own floor — see the compact ladder above. Dropping the header here
+         took every lever with it, which is what made the panel look like it had
+         none at all. */
+      /* The header STAYS. Dropping it took the Graph and Commit labels and
+         every resize lever with it, so the pane looked like it had none — the
+         same regret already recorded for compact mode two blocks up. It keeps
+         the two tracks that still exist and says what they are. */
+      :host(:not([compact])) .colhead .ch-refs,
+      :host(:not([compact])) .colhead .ch-changes,
+      :host(:not([compact])) .colhead .ch-author { display: none; }
+      :host(:not([compact])) .col-resize[data-col="refs"],
+      :host(:not([compact])) .col-resize[data-col="changes"],
+      :host(:not([compact])) .col-resize[data-col="author"] { display: none; }
+      :host(:not([compact])) .row .changes,
+      :host(:not([compact])) .row .author,
+      :host(:not([compact])) .row .date,
+      :host(:not([compact])) .row .sha { display: none; }
+      :host(:not([compact])) .content {
+        display: flex; align-items: center; gap: 7px;
+      }
+      :host(:not([compact])) .content .refs {
+        display: inline-flex; flex: 0 0 auto; min-width: 0;
+        max-width: ${Math.round(SIDEBAR_REFS_SHARE * 100)}%; margin: 0; padding: 0;
+      }
+      /* No refs → no chip box → no leading gap: the message starts at the edge. */
+      :host(:not([compact])) .content .refs:empty { display: none; }
+      :host(:not([compact])) .content .subject { flex: 1 1 auto; min-width: 0; }
+    }
+    /* Compact's own floor: below this even three columns are too many, so it
+       becomes the same clean one-line list the sidebar uses. */
+    @container (max-width: 330px) {
+      :host([compact]) .colhead { display: none; }
+      :host([compact]) .col-resize { display: none; }
+      :host([compact]) .colhead, :host([compact]) .row {
+        --gs-grid: var(--gs-gutter-w, ${MIN_GUTTER_WIDTH}px) minmax(0, 1fr);
+      }
+      :host([compact]) .row .changes { display: none; }
+    }
+
+    /* ── Column header row (aligned to the row grid) ──────────────────── */
+    .colhead {
+      position: relative;
+      flex: 0 0 auto;
+      display: grid;
+      grid-template-columns: var(--gs-grid);
+      /* stretch, NOT center: the cells are the grips' containing blocks, and a
+         centred grid item is only as tall as its text. See .col-resize. */
+      align-items: stretch;
+      height: 26px;
+      padding-right: 12px;
+      /* Mirror the rows' selection border so header cells sit exactly over
+         their column content. */
+      border-left: 2px solid transparent;
+      border-bottom: 1px solid color-mix(in srgb, var(--vscode-foreground) 12%, transparent);
+      background: color-mix(in srgb, var(--vscode-foreground) 2%, var(--vscode-editor-background));
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      /* Mixed into the BACKGROUND, not into transparent. Mixing toward
+         transparent dims correctly over a dark ground and washes out over a
+         light one: the same 50% measured 4.11:1 in dark and 2.93:1 in light.
+         Against the background it composites the same way in both. 66% was
+         4.56:1 on the editor background, but the header sits on its own 2%
+         wash (above), where it was 4.41:1; 68% is 4.69:1 there, 6.32:1 dark. */
+      color: color-mix(in srgb, var(--vscode-foreground) 68%, var(--vscode-editor-background));
+      user-select: none;
+    }
+    /* Header cells let the right-edge grip escape (overflow:visible); the label
+       text is clipped by its own .ch-label child so it still ellipsizes. */
+    .colhead > span {
+      position: relative;
+      overflow: visible;
+      white-space: nowrap;
+      padding-left: var(--gs-cell-inset);
+      /* The cell fills the header's height (see align-items:stretch above) so
+         its grip is full-height; the label re-centres itself within it. */
+      display: flex;
+      align-items: center;
+      min-width: 0;
+    }
+    .colhead .ch-label {
+      display: block;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .colhead .ch-graph { padding-left: 4px; }
+    /* Chips start 6px into the refs cell — start the header label with them. */
+    .colhead .ch-refs { padding-left: 6px; }
+
+    /* ── Column resize handles (grab strips on the right edge of headers) ──
+       Pinned flush to the column's right edge, fully inside the track so the
+       parent span's box never clips them. A hairline brightens on hover/drag. */
+    /* The GRAB ZONE is the element: wide, full-height, and invisible. The MARK
+       is a pseudo-element, and it is deliberately a short centred tick rather
+       than a full-height rule — with the header's own bottom border, a
+       full-height line at every boundary turns the row of labels into a boxed
+       spreadsheet. The tick says "there is a handle here"; it grows to the full
+       height and takes the accent only while you are pointing at it. */
+    .col-resize {
+      position: absolute;
+      top: 0;
+      /* Straddle the boundary rather than hugging the inside of it, so the grab
+         zone is symmetric and the mark lands exactly on the column edge. */
+      right: -6px;
+      width: 13px;
+      height: 100%;
+      cursor: col-resize;
+      z-index: 4;
+      background: none;
+      touch-action: none;
+    }
+    .col-resize::after {
+      content: "";
+      position: absolute;
+      left: 6px;
+      top: 50%;
+      width: 1px;
+      height: 11px;
+      transform: translateY(-50%);
+      border-radius: 1px;
+      background: color-mix(in srgb, var(--vscode-foreground) 20%, transparent);
+      transition: height 110ms ease, background 110ms ease, width 110ms ease;
+    }
+    .col-resize:hover::after,
+    .col-resize.dragging::after {
+      width: 2px;
+      height: 100%;
+      background: var(--vscode-focusBorder);
+    }
+    .col-resize:focus-visible {
+      outline: 1px solid var(--vscode-focusBorder);
+      outline-offset: -1px;
+      border-radius: 2px;
+    }
+    /* While dragging, lock the cursor + kill text selection document-wide. */
+    :host(.col-dragging) { cursor: col-resize; }
+    :host(.col-dragging) .scroller,
+    :host(.col-dragging) .row,
+    :host(.col-dragging) .colhead { user-select: none; }
+
+    /* Every cell is PINNED to its own track.
+       -------------------------------------
+       The row is a seven-track grid and its cells used to be placed by source
+       order alone. Hiding a column sets its track to 0px (correct) and also
+       takes the cell out of the flow with display:none — at which point
+       every later cell slides up one track and lands in the wrong column.
+       Unchecking "Branch / Tag" gave the subject 9px and the changes column
+       493px; unchecking "Date" made the SHA column vanish entirely while the
+       Columns menu still showed SHA as checked, which is a menu lying about
+       what is on screen.
+       With an explicit grid-column, removing a cell moves nothing. Compact
+       mode lays .content out as flex and is unaffected. */
+    :host(:not([compact])) .row > .gutter,
+    :host(:not([compact])) .colhead .ch-graph { grid-column: 1; }
+    :host(:not([compact])) .row .refs,
+    :host(:not([compact])) .colhead .ch-refs { grid-column: 2; }
+    :host(:not([compact])) .row .subject,
+    :host(:not([compact])) .colhead .ch-subject { grid-column: 3; }
+    :host(:not([compact])) .row .changes,
+    :host(:not([compact])) .colhead .ch-changes { grid-column: 4; }
+    :host(:not([compact])) .row .meta.author,
+    :host(:not([compact])) .colhead .ch-author { grid-column: 5; }
+    :host(:not([compact])) .row .meta.date,
+    :host(:not([compact])) .colhead .ch-date { grid-column: 6; }
+    :host(:not([compact])) .row .meta.sha,
+    :host(:not([compact])) .colhead .ch-sha { grid-column: 7; }
+
+    /* ── Hidden columns: hide the cells/header (the track is collapsed to 0 on
+       the inline :host style by applyColumnStyles, which outranks any saved
+       width). These rules only remove the now-empty cells + their grip. */
+    :host(.hide-refs) .refs, :host(.hide-refs) .ch-refs,
+    :host(.hide-refs) .col-resize[data-col="refs"] { display: none; }
+    :host(.hide-changes) .changes, :host(.hide-changes) .ch-changes,
+    :host(.hide-changes) .col-resize[data-col="changes"] { display: none; }
+    :host(.hide-author) .author, :host(.hide-author) .ch-author,
+    :host(.hide-author) .col-resize[data-col="author"] { display: none; }
+    :host(.hide-date) .date, :host(.hide-date) .ch-date,
+    :host(.hide-date) .col-resize[data-col="date"] { display: none; }
+    /* SHA is the last column: no trailing grip (dividers only sit BETWEEN
+       columns, Git Graph-style) — the date|sha boundary resizes it. */
+    :host(.hide-sha) .sha, :host(.hide-sha) .ch-sha { display: none; }
+
+    /* Whichever column becomes last when trailing columns are hidden must not
+       keep a dangling right-edge grip either. */
+    :host(.hide-sha) .col-resize[data-col="date"] { display: none; }
+    :host(.hide-sha.hide-date) .col-resize[data-col="author"] { display: none; }
+    :host(.hide-sha.hide-date.hide-author)
+      .col-resize[data-col="changes"][data-invert="0"] { display: none; }
+
+    /* The drop target: a line BETWEEN two commits, never a highlighted row —
+       a reorder inserts at a boundary, and showing it as a boundary is what
+       makes "above this one" unambiguous without a dialog afterwards. */
+    .insert-line {
+      position: absolute;
+      left: 0;
+      right: 0;
+      height: 2px;
+      margin-top: -1px;
+      background: var(--gs-brand, var(--vscode-focusBorder));
+      box-shadow: 0 0 0 1px color-mix(in srgb, var(--gs-brand, var(--vscode-focusBorder)) 35%, transparent);
+      pointer-events: none;
+      z-index: 6;
+    }
+    .insert-line[hidden] { display: none; }
+    .insert-line::before {
+      content: "";
+      position: absolute;
+      left: 2px;
+      top: -3px;
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--gs-brand, var(--vscode-focusBorder));
+    }
+    /* While a drag is live the whole surface stops selecting text and shows the
+       grab cursor, so the pointer never looks like it is doing something else. */
+    :host(.row-dragging) .scroller,
+    :host(.row-dragging) .row { user-select: none; cursor: grabbing; }
+    .row.is-dragged { opacity: 0.45; }
+    /* A row that CAN be dragged says so on hover, and only then — a permanent
+       grab cursor on every row would promise it everywhere. */
+    .row.can-reorder:hover { cursor: grab; }
+
+    .scroller {
+      flex: 1 1 auto;
+      width: 100%;
+      overflow: auto;
+      contain: strict;
+      outline: none;
+    }
+    /* Keyboard focus must stay visible even though we suppress the default
+       outline (the scroller is the roving-focus container for arrow-key nav). */
+    .scroller:focus-visible {
+      outline: 1px solid var(--vscode-focusBorder);
+      outline-offset: -1px;
+    }
+
+    .sizer {
+      position: relative;
+      width: 100%;
+    }
+
+    .row {
+      position: absolute;
+      left: 0;
+      top: 0;
+      width: 100%;
+      height: ${ROW_HEIGHT}px;
+      display: grid;
+      grid-template-columns: var(--gs-grid);
+      align-items: center;
+      column-gap: 0;
+      box-sizing: border-box;
+      padding-right: 12px;
+      cursor: default;
+      user-select: none;
+      border-left: 2px solid transparent;
+      --gs-graph-node-hole: var(--vscode-editor-background, #1e1e1e);
+      will-change: transform;
+    }
+    .row:hover {
+      background: var(--vscode-list-hoverBackground);
+      --gs-graph-node-hole: var(--vscode-list-hoverBackground,
+        var(--vscode-editor-background));
+    }
+    .row.selected {
+      background: var(--vscode-list-activeSelectionBackground);
+      color: var(--vscode-list-activeSelectionForeground, inherit);
+      border-left-color: var(--vscode-focusBorder, var(--vscode-list-focusOutline,
+        #007fd4));
+      --gs-graph-node-hole: var(--vscode-list-activeSelectionBackground,
+        var(--vscode-editor-background));
+    }
+    .row.selected:hover {
+      background: var(--vscode-list-activeSelectionBackground);
+    }
+
+    /* ── Author avatar — sits ON the commit node (GitKraken-style) ──────── */
+    .avatar {
+      position: absolute;
+      left: var(--gs-av-x, 12px);
+      /* node cy = Math.round(ROW_HEIGHT/2)+0.5 = 15.5 — sit exactly on it (the
+         rail applies the same +0.5); plain 50% lands the icon 0.5px high. */
+      top: calc(50% + 0.5px);
+      width: ${AVATAR_SIZE}px;
+      height: ${AVATAR_SIZE}px;
+      transform: translate(-50%, -50%);
+      border-radius: 50%;
+      overflow: hidden;
+      /* A lane-colored ring, then a hole-colored ring so crossing lanes never
+         visually fuse into the avatar. */
+      box-shadow:
+        0 0 0 1.5px var(--gs-av-ring, var(--vscode-focusBorder)),
+        0 0 0 3px var(--gs-graph-node-hole);
+      pointer-events: none;
+      z-index: 1;
+    }
+    .row.selected .avatar {
+      box-shadow:
+        0 0 0 1.5px var(--gs-av-ring, var(--vscode-focusBorder)),
+        0 0 0 3px var(--vscode-list-activeSelectionBackground, var(--gs-graph-node-hole));
+    }
+    .avatar img {
+      /* Positioned so it paints ABOVE the absolutely-positioned initials
+         fallback (positioned siblings always paint over static ones — a
+         static img here is permanently covered even after it loads).
+         Starts hidden and is revealed ONLY once it confirms a successful load
+         (onImgLoad adds .is-loaded). A Gravatar 404 (d=404), a blocked host, or
+         an offline fetch therefore never obscures the initials disc with an
+         empty box — the disc is the always-visible base, the photo is a
+         progressive enhancement painted on top only when it truly arrives. */
+      position: relative;
+      width: 100%;
+      height: 100%;
+      display: block;
+      object-fit: cover;
+      background: transparent;
+      opacity: 0;
+    }
+    .avatar img.is-loaded { opacity: 1; }
+    .avatar .fallback {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 9px;
+      font-weight: 600;
+      letter-spacing: 0.02em;
+      color: var(--vscode-foreground);
+      font-family: var(--vscode-font-family);
+      /* A soft, near-neutral disc — a whisper of the author's hue mixed into the
+         surface, not a saturated color. Keeps per-author identity without turning
+         the avatar column into a rainbow (the loudest "busy" signal in a graph). */
+      background: color-mix(in srgb, hsl(var(--gs-av-hue, 210) 45% 50%) 30%, var(--gs-bg, var(--vscode-editor-background, #24262c)));
+    }
+    /* WIP node: a pencil glyph in a dashed lane-colored ring. */
+    .avatar.wip-node {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: var(--vscode-editor-background);
+      color: var(--gs-av-ring, var(--vscode-charts-yellow, #e2c08d));
+      box-shadow:
+        0 0 0 1.5px var(--gs-av-ring, var(--vscode-charts-yellow, #e2c08d)),
+        0 0 0 3px var(--gs-graph-node-hole);
+    }
+    .avatar.wip-node .codicon { font-size: 11px; }
+    .row.is-wip .subject { font-style: italic; color: var(--gs-fg-muted); }
+
+    .gutter {
+      position: relative;
+      height: ${ROW_HEIGHT}px;
+      overflow: hidden;
+      align-self: stretch;
+    }
+    .gutter svg {
+      display: block;
+    }
+
+    .refs {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 0 12px 0 6px;
+      min-width: 0;
+      overflow: hidden;
+      white-space: nowrap;
+    }
+    /* ── Ref chips — clearer, more prominent, AA-legible in both themes ──────
+       Each kind is differentiated by hue + icon: local branch (accent), remote
+       (cool/neutral + cloud), tag (amber + tag), current HEAD (filled accent +
+       "you are here" dot). Every chip composites its tint over the OPAQUE editor
+       background (not transparent) so the label contrast can't collapse on a
+       selected (accent-filled) row. */
+    .chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      /* border-box is NOT inherited here — only .row sets it — so without this
+         the 1px border and 6px padding are ADDED to height/max-width (chips came
+         out 18px tall and 146px wide against a 16/132 spec).
+         NB: never put backticks in these comments — this CSS is a JS template
+         literal, and a stray backtick ends the string and still compiles. */
+      box-sizing: border-box;
+      height: 19px;
+      padding: 0 8px;
+      border-radius: 5px;
+      font-size: 11px;
+      font-weight: 550;
+      line-height: 19px;
+      /* Cap a single long ref so it can't hog the whole column; no min-width, so
+         short refs (a 3-char branch, a tag) pack tight instead of each reserving
+         a wide slot and pushing the rest into a "+N".
+         RELATIVE to the track, never a fixed px: a fixed 132px cap was the same
+         trap as the old count cap (#11) -- "origin/feat/diff-tick-staging" needs
+         ~185px, so it ellipsized at EVERY column width, and dragging the column
+         wider (the obvious thing to try) silently did nothing. */
+      max-width: max(132px, calc(var(--col-refs-w, 260px) - 22px));
+      overflow: hidden;
+      white-space: nowrap;
+      /* Deliberately BORDERLESS. A border + a tinted fill + a coloured label is
+         three encodings of one fact; in a dense list that reads as clutter. The
+         fill alone carries the kind, and only the current HEAD gets real weight
+         (see .chip-current) so the eye has exactly one anchor per screen. The
+         transparent border stays only to keep metrics identical across kinds. */
+      border: 1px solid transparent;
+      flex: 0 1 auto;
+    }
+    /* The text label inside a chip truncates; the icon never shrinks. */
+    .chip .nm {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    /* Remote prefix ("origin/") recedes so the branch name carries the chip —
+       by WEIGHT, not by ink. It was opacity 0.58, which is a mix toward the
+       chip's own ground, and the arithmetic has no room for that: the remote
+       ink clears AA on the light wash by 0.4 (4.86:1 on rgb 238), so a
+       prefix dimmed by even a tenth is under 4.5 — and the light theme spends
+       contrast faster than dark on every step. Regular against the chip's
+       550 is a step the eye reads at 11px and costs nothing. */
+    .chip .rp { font-weight: 400; }
+    /* Cloud tail on a local chip whose remote twin was folded into it. */
+    .chip .tail {
+      font-size: 10px;
+      flex: 0 0 auto;
+      opacity: 0.7;
+      margin-left: 1px;
+    }
+    .chip .ico {
+      font-size: 11px;
+      flex: 0 0 auto;
+      opacity: 0.95;
+    }
+    /* current HEAD = the ONE strong element: solid brand fill, no shadow. */
+    .chip-current {
+      color: var(--gs-brand-fg, #fff);
+      background: var(--gs-brand);
+      border-color: transparent;
+      font-weight: 650;
+    }
+    .chip-current .dot {
+      width: 5px;
+      height: 5px;
+      border-radius: 50%;
+      flex: 0 0 auto;
+      background: currentColor;
+      box-shadow: 0 0 0 2px color-mix(in srgb, currentColor 35%, transparent);
+    }
+    /* local branch = quiet accent wash, accent text + icon. The ink is the
+       link colour pulled a step toward the foreground: on the wash (not on the
+       bare editor background) the plain link blue measured 4.14:1 in light,
+       and the wash is the pill. 12% clears AA at 4.69:1 and is still the blue. */
+    .chip-head {
+      color: color-mix(in srgb,
+        var(--vscode-textLink-foreground, var(--vscode-focusBorder)) 88%, var(--vscode-foreground));
+      border-color: transparent;
+      background: color-mix(in srgb,
+        var(--vscode-focusBorder) 13%, var(--vscode-editor-background));
+    }
+    .chip-head .ico { color: inherit; }
+    /* remote = the quietest kind. It is context ("this also exists upstream"),
+       not a thing you act on, so it gets no hue of its own — just a neutral
+       wash and dimmed text. This is what stops a row of refs reading as a row
+       of competing buttons. Dimmed, but measured on its own wash rather than
+       on the editor background: the description colour alone is 4.19:1 on the
+       light wash, and 15% toward the foreground makes it 4.86:1 (5.68:1 dark). */
+    .chip-remote {
+      color: color-mix(in srgb, var(--vscode-descriptionForeground) 85%, var(--vscode-foreground));
+      border-color: transparent;
+      background: color-mix(in srgb,
+        var(--vscode-foreground) 8%, var(--vscode-editor-background));
+    }
+    .chip-remote .ico { color: inherit; opacity: 0.8; }
+    /* tag = amber text on a bare wash. Uses --gs-amber (the legibility-tuned
+       gitDecoration "modified" foreground), NOT raw charts-yellow, which fails
+       AA as small text on light themes. Tuned on white, though, and the wash
+       is not white: 4.48:1 on it in light. 6% toward the foreground is
+       4.72:1, and still the amber. */
+    .chip-tag {
+      color: color-mix(in srgb, var(--gs-amber) 94%, var(--vscode-foreground));
+      border-color: transparent;
+      background: color-mix(in srgb, var(--gs-amber) 13%, var(--vscode-editor-background));
+    }
+    .chip-tag .ico { color: inherit; }
+    /* The "+N" overflow pill must never shrink or ellipsize — it's the count. */
+    /* "+2" is a footnote, not a peer of the branch chips — no box, just a quiet
+       count so the eye lands on the actual ref names. */
+    .chip[data-ref] { cursor: pointer; }
+    .chip[data-ref]:hover { filter: brightness(1.18); text-decoration: underline; }
+    .chip-overflow {
+      color: var(--vscode-descriptionForeground);
+      background: transparent;
+      border-color: transparent;
+      padding: 0 3px;
+      min-width: 0;
+      flex: 0 0 auto;
+      overflow: visible;
+      /* Clicking it opens the details dock, which lists every hidden ref in
+         full. It read as decoration at cursor:default, so people resized the
+         column instead of clicking (issue #5). */
+      cursor: pointer;
+      font-variant-numeric: tabular-nums;
+    }
+    .chip-overflow:hover {
+      color: var(--vscode-foreground);
+      background: color-mix(in srgb, var(--vscode-foreground) 12%, transparent);
+      border-radius: 3px;
+    }
+    /* On a selected (accent-filled) row, lift chip contrast a touch so the
+       tinted fills don't muddy against the active-selection background. */
+    .row.selected .chip-head,
+    .row.selected .chip-remote,
+    .row.selected .chip-tag,
+    .row.selected .chip-overflow {
+      background: color-mix(in srgb,
+        var(--vscode-editor-background) 78%, transparent);
+    }
+
+    .subject {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      padding-left: var(--gs-cell-inset);
+      padding-right: 16px;
+      font-size: 13px;
+      transition: opacity 150ms ease;
+    }
+    .refs,
+    .avatar,
+    .meta {
+      transition: opacity 150ms ease;
+    }
+    .meta {
+      color: var(--vscode-descriptionForeground, #9aa0a6);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-size: 11.5px;
+    }
+    /* ── CHANGES column: file count + add/del proportion bar ──────────── */
+    .changes {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      padding-left: var(--gs-cell-inset);
+      padding-right: 12px;
+      overflow: hidden;
+      color: var(--vscode-descriptionForeground, #9aa0a6);
+      font-size: 11px;
+      font-variant-numeric: tabular-nums;
+      transition: opacity 150ms ease;
+    }
+    .changes .ch-count {
+      display: inline-flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 3px;
+      /* A fixed slot so 3, 11 and 17 right-align and every bar starts on the
+         same x — otherwise the meters step right as the counts get longer and
+         a column of proportions is no longer comparable at a glance. */
+      flex: 0 0 34px;
+    }
+    .changes .ch-count .codicon { font-size: 12px; opacity: 0.75; }
+    /* A slim proportional meter: length ~ size of the change (log scale),
+       green/red split = add/delete mix. Reads like the commit-details stat
+       bars, so the two surfaces speak the same language. */
+    .changes .ch-bar {
+      display: inline-flex;
+      height: 5px;
+      border-radius: 2px;
+      overflow: hidden;
+      flex: 0 0 auto;
+      background: color-mix(in srgb, currentColor 16%, transparent);
+    }
+    .changes .ch-bar i {
+      height: 100%;
+    }
+    .changes .ch-bar i.a {
+      background: var(--gs-status-added, var(--vscode-charts-green, #3fb950));
+    }
+    .changes .ch-bar i.d {
+      background: var(--gs-status-deleted, var(--vscode-charts-red, #f85149));
+    }
+    .author {
+      padding-left: var(--gs-cell-inset);
+      padding-right: 12px;
+    }
+    /* The name is truncated and ambiguous on its own; the card is where the
+       identity lives, so the cell advertises that it is worth hovering. */
+    .author[data-author] { cursor: help; }
+    /* Every column is left-aligned (Git Graph-style) — one reading axis. */
+    .date {
+      padding-left: var(--gs-cell-inset);
+      padding-right: 12px;
+      font-variant-numeric: tabular-nums;
+    }
+    /* ── SHA cell — click to copy the FULL sha, with inline feedback ──────────
+       Interactivity (cursor, hover, copy glyph) is scoped to [data-sha-cell] so
+       the empty WIP-row sha cell stays inert. */
+    .sha {
+      display: inline-flex;
+      align-items: center;
+      justify-content: flex-start;
+      gap: 4px;
+      padding-left: var(--gs-cell-inset);
+      min-width: 0;
+      overflow: hidden;
+      white-space: nowrap;
+      font-family: var(--vscode-editor-font-family, monospace);
+      font-variant-numeric: tabular-nums;
+      font-size: 11px;
+      /* An explicit ink rather than opacity over an already-muted inherited
+         colour, which compounded to 3.29:1. 70% into the background measures
+         6.89:1 dark and 5.18:1 light. */
+      color: color-mix(in srgb, var(--vscode-foreground) 70%, var(--vscode-editor-background));
+      border-radius: 4px;
+      transition: color 120ms ease, opacity 120ms ease, background 120ms ease;
+    }
+    .sha[data-sha-cell] { cursor: pointer; }
+    .sha .codicon {
+      font-size: 11px;
+      opacity: 0;
+      transition: opacity 120ms ease;
+    }
+    .row:hover .sha { color: var(--vscode-foreground); }
+    .row:hover .sha[data-sha-cell]:hover {
+      color: var(--vscode-textLink-foreground, var(--vscode-focusBorder));
+      text-decoration: underline;
+      text-underline-offset: 2px;
+    }
+    /* A faint copy glyph fades in on row hover as the affordance cue. */
+    .row:hover .sha[data-sha-cell] .codicon-copy { opacity: 0.6; }
+    .row:hover .sha[data-sha-cell]:hover .codicon-copy { opacity: 1; }
+    /* "Copied" confirmation state (set for ~1s after a successful copy). */
+    .sha.copied {
+      color: var(--vscode-charts-green, var(--vscode-gitDecoration-addedResourceForeground, #89d185));
+      opacity: 1;
+      text-decoration: none;
+    }
+    .sha.copied .codicon-check { opacity: 1; }
+    .row.selected .meta {
+      color: inherit;
+      opacity: 0.85;
+    }
+    .row.selected .sha { opacity: 1; }
+
+    /* Lane focus (engaged only while hovering the gutter — see onPointerMove):
+       unrelated branches recede so the hovered branch stands out. The gutter and
+       row chrome dim firmly; the subject stays legible so the list is still
+       readable, not blanked out. */
+    .scroller.focusing .row:not(.focus-on) .gutter,
+    .scroller.focusing .row:not(.focus-on) .refs,
+    .scroller.focusing .row:not(.focus-on) .avatar,
+    .scroller.focusing .row:not(.focus-on) .changes,
+    .scroller.focusing .row:not(.focus-on) .meta {
+      opacity: 0.42;
+    }
+    .scroller.focusing .row:not(.focus-on) .subject { opacity: 0.62; }
+
+    .placeholder {
+      display: flex;
+      flex: 1 1 auto;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      padding: 24px;
+      color: var(--vscode-descriptionForeground, #9aa0a6);
+      font-size: 13px;
+      text-align: center;
+    }
+    .placeholder .ph-icon { font-size: 30px; opacity: 0.45; }
+    .placeholder .ph-title {
+      font-size: 13px; font-weight: 600; color: var(--vscode-foreground);
+    }
+    .placeholder .ph-detail {
+      font-size: 12px; line-height: 1.5; max-width: 300px; color: var(--gs-fg-muted);
+    }
+    .placeholder .ph-retry {
+      display: inline-flex; align-items: center; gap: 6px;
+      margin-top: 4px; height: 26px; padding: 0 12px;
+      border-radius: var(--gs-radius-sm); border: 1px solid var(--gs-border);
+      background: var(--gs-surface); color: var(--gs-fg);
+      cursor: pointer; font-size: 12px; font-family: inherit;
+      transition: background var(--gs-motion) var(--gs-ease),
+                  border-color var(--gs-motion) var(--gs-ease);
+    }
+    .placeholder .ph-retry:hover {
+      background: var(--gs-hover); border-color: var(--gs-fg-subtle);
+    }
+    .placeholder .ph-retry:focus-visible {
+      outline: 1px solid var(--gs-accent); outline-offset: 1px;
+    }
+    .placeholder .ph-retry .codicon { font-size: 13px; }
+    .spinner {
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      border: 2px solid color-mix(in srgb, currentColor 30%, transparent);
+      border-top-color: currentColor;
+      animation: spin 0.8s linear infinite;
+    }
+    @keyframes spin {
+      to {
+        transform: rotate(360deg);
+      }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .spinner {
+        animation: none;
+        border-top-color: color-mix(in srgb, currentColor 30%, transparent);
+      }
+      .subject,
+      .refs,
+      .avatar,
+      .meta {
+        transition: none;
+      }
+    }
+  `];
+
+  // Reactive properties are `declare`d (no field initializer) so they never
+  // shadow Lit's generated accessors under ES2022 `[[Define]]` field semantics;
+  // their defaults are assigned in the constructor instead.
+  /** The loaded rows (host appends pages in place). */
+  declare rows: WireRow[];
+  /** Total columns across loaded rows (drives gutter sizing). */
+  declare totalColumns: number;
+  /** Whether more pages remain to be loaded on scroll. */
+  declare hasMore: boolean;
+  /** Lifecycle phase for the placeholder states. */
+  declare status: "loading" | "ready" | "empty" | "error";
+  /** Message for the error placeholder — a git failure, NOT an empty repo
+      (an empty/fresh repo stays in the "empty" state with its own guidance). */
+  declare errorMessage: string;
+  /** Sha of the current HEAD commit. */
+  declare head: string;
+  /** The branch filter the rows were built under (issue #30); null = all. */
+  declare refFilter: GraphRefFilter;
+  /** The preset that filter IS, when the host says so (a graphInit's
+   *  refPreset): lit in the picker, named by the trigger. */
+  declare refPreset: RefPreset | undefined;
+  /** Every ref the Branches picker offers — filtered-out ones included. */
+  declare refList: GraphRefEntry[];
+
+  private declare palette: readonly string[];
+  private declare selectedSha: string | undefined;
+  private declare searchQuery: string;
+  /** What the search query is scoped to match against. */
+  private declare searchScope: SearchScope;
+  /** Whether the Columns popover / search-scope popover are open. */
+  private declare columnsOpen: boolean;
+  private declare scopeOpen: boolean;
+  /** The Branches picker (issue #30): open, and its list's filter text. */
+  private declare branchesOpen: boolean;
+  private declare branchQuery: string;
+  /** The open in-graph commit actions popover, or null. Positioned at (x,y). */
+  private declare commitMenu: {
+    sha: string;
+    x: number;
+    y: number;
+    title: string;
+    items: CommitMenuItem[];
+  } | null;
+  /**
+   * A ref chip's own menu (right-click or ⌥-click on a chip): the filter
+   * shortcuts — show only this branch, add it, remove it — and the checkout
+   * the row's commit menu used to offer for that click. `refs` is the chip's
+   * ref plus the remote twins folded into it, so the chip moves as one thing
+   * (empty when the ref list has no entry for the chip — see chipRefs);
+   * `sha` is the row it sits on, for the checkout. A menu opened for a chip
+   * OUTSIDE this element (the commit-details pane's, via openRefMenu) keeps
+   * the chip in `opener`, so Escape hands focus back to it rather than to the
+   * list.
+   */
+  private declare chipMenu: {
+    /** git's short name, as the chip carries it — for the host's checkout
+     *  request, never for display (see fullName). */
+    name: string;
+    /** The chip's full name: what it resolves by and is titled by. */
+    fullName: string;
+    kind: WireRef["kind"];
+    sha: string;
+    refs: string[];
+    x: number;
+    y: number;
+    opener?: HTMLElement;
+    /** Opened from the keyboard: focus its first item once it renders. */
+    focusFirst?: boolean;
+  } | null;
+  /** Row indices matching the current search, and the cursor into them. */
+  private searchMatches: number[] = [];
+  private matchSet = new Set<number>();
+  private matchIdx = -1;
+
+  /** Host-resolved author photos: lowercased email → avatar URL (e.g. GitHub).
+   *  Empty until the host pushes them; a plain DOM property (not a Lit reactive
+   *  prop) whose setter repaints the virtualized rows in place. */
+  /** URLs whose avatar image has loaded successfully at least once, so recycled
+   *  rows can render them visible immediately (no scroll flicker). */
+  private loadedAvatars = new Set<string>();
+  private _authorAvatars: Record<string, string> = {};
+  set authorAvatars(map: Record<string, string> | undefined) {
+    this._authorAvatars = map ?? {};
+    // Rows are virtualized (raw innerHTML), so a reactive re-render wouldn't
+    // touch them — repaint explicitly once the map lands.
+    if (this.rows.length > 0) {
+      this.renderRows();
+    }
+  }
+  get authorAvatars(): Record<string, string> {
+    return this._authorAvatars;
+  }
+  /** The resolved photo URL for an author email, or undefined to fall back. */
+  private avatarFor(email: string): string | undefined {
+    return email ? this._authorAvatars[email.toLowerCase()] : undefined;
+  }
+
+  /** Per-column widths (px), keyed by column id; persisted to localStorage. */
+  private colWidths: Partial<Record<ColumnSpec["id"], number>> = {};
+  /**
+   * Which commits may be reordered by dragging (issue #18), newest first.
+   * Empty until the host says otherwise — a host that never sends the chain
+   * simply has no drag, rather than a broken one.
+   */
+  private chainShas: string[] = [];
+  private chainStop: "merge" | "published" | "root" = "root";
+  private chainBranches: Record<string, string[]> = {};
+  /** Fast membership + position lookups for the row renderer. */
+  private chainIndex = new Map<string, number>();
+  /** The live drag, or undefined. */
+  private drag2:
+    | {
+        sha: string;
+        /** Index within chainShas. */
+        from: number;
+        /** Where the pointer went down, to apply a movement threshold. */
+        startY: number;
+        /** The gap the insertion line is currently snapped to, or -1. */
+        gap: number;
+        started: boolean;
+        pointerId: number;
+      }
+    | undefined;
+
+  /** Memoised auto-fit for the refs track, keyed on row count + host width. */
+  private autoRefs = { n: -1, host: -1, w: 0 };
+  private resizeObs: ResizeObserver | undefined;
+  /** Hidden column ids; persisted to localStorage. */
+  private hiddenCols = new Set<ColumnSpec["id"]>();
+  /** Live column-drag bookkeeping (null when not dragging). */
+  private drag: {
+    id: ColumnSpec["id"];
+    startX: number;
+    startW: number;
+    handle: HTMLElement;
+    /** True for a divider on the LEFT of its column (drag right = shrink). */
+    invert: boolean;
+  } | null = null;
+  /** Pending re-fit frame while the refs column is being dragged (0 = none). */
+  private resizeRaf = 0;
+  /** Timer that clears the "Copied" sha feedback. */
+  private copiedTimer: number | undefined;
+
+  /** Emits user intents the host should act on. */
+  onAction: (action: GraphAction) => void = () => {};
+
+  private get scroller(): HTMLDivElement | null {
+    return this.renderRoot.querySelector(".scroller");
+  }
+
+  /** The "+N" ref pill's hover card (see refTip.ts). */
+  private readonly refTip = new RefTip(() =>
+    this.renderRoot.querySelector(".reftip"),
+  );
+  /** The AUTHOR cell's identity card (see authorTip.ts). */
+  private readonly authorTip = new AuthorTip(() =>
+    this.renderRoot.querySelector(".authortip"),
+  );
+  /** Per-email tallies over the loaded rows, rebuilt when the row count moves. */
+  private authorFacts = new Map<string, { c: number; f: number; l: number }>();
+  private authorFactsFor = -1;
+
+  private virtualizer:
+    | Virtualizer<HTMLDivElement, HTMLDivElement>
+    | undefined;
+  /** The scroll element the live virtualizer is bound to (identity check). */
+  private boundScroller: HTMLDivElement | undefined;
+  private cleanupVirtualizer: (() => void) | undefined;
+  private disposeTheme: (() => void) | undefined;
+  private shaToIndex = new Map<string, number>();
+  /** CHANGES-column stats by sha (lazily fetched for visible rows). */
+  private rowStats = new Map<string, RowStat>();
+  /** Shas whose stats have been requested but not yet returned. */
+  private pendingStats = new Set<string>();
+  /** Shas the host ANSWERED for and had no stats for. Asking again returns the
+   *  same nothing, and re-asking on every repaint is a request storm. */
+  private readonly statsUnavailable = new Set<string>();
+  private loadMoreArmed = true;
+  /** scrollKey of the filter the current rows were built under (see updated). */
+  private rowsKey: string | undefined;
+  /** lane color the pointer is hovering, for the focus-dim affordance. */
+  private focusColor: number | undefined;
+
+  constructor() {
+    super();
+    this.rows = [];
+    this.totalColumns = 1;
+    this.hasMore = false;
+    this.status = "loading";
+    this.errorMessage = "";
+    this.head = "";
+    this.refFilter = null;
+    this.refPreset = undefined;
+    this.refList = [];
+    this.palette = paletteForTheme();
+    this.selectedSha = undefined;
+    this.searchQuery = "";
+    this.searchScope = "all";
+    this.columnsOpen = false;
+    this.scopeOpen = false;
+    this.branchesOpen = false;
+    this.branchQuery = "";
+    this.commitMenu = null;
+    this.chipMenu = null;
+  }
+
+  connectedCallback(): void {
+    super.connectedCallback();
+    this.loadColumnPrefs();
+    // Re-attaching asks for a repaint. `disconnectedCallback` tears the
+    // virtualizer down, and only `updated()` builds one — which Lit runs on a
+    // reactive change, not on a reconnect. The desktop keeps this element alive
+    // across view switches and re-parents it (renderer.ts's viewCache), so
+    // without this the list came back with no virtualizer at all: the rows of
+    // the window you last looked at, still at their old offsets, and nothing
+    // ever repainting them. Scrolled down first, that is a blank list.
+    this.requestUpdate();
+    this.disposeTheme = observeGraphTheme((palette) => {
+      this.palette = palette;
+      this.renderRows();
+    });
+    // The Branch/Tag auto-fit is a function of the host width (see
+    // autoRefsWidth), and the CSS container queries that handle the rest of the
+    // responsive behaviour never call back into JS. Without this the track
+    // keeps whatever width the last Lit update computed, so a plain window
+    // resize leaves it stale until something else happens to re-render.
+    this.resizeObs = new ResizeObserver(() => {
+      if (this.colWidths.refs !== undefined) return; // user-set: nothing to fit
+      const before = this.autoRefs.w;
+      this.applyColumnStyles();
+      if (this.autoRefs.w !== before) this.renderRows(); // re-fold the chips
+    });
+    this.resizeObs.observe(this);
+  }
+
+  disconnectedCallback(): void {
+    super.disconnectedCallback();
+    this.teardownVirtualizer();
+    this.resizeObs?.disconnect();
+    this.resizeObs = undefined;
+    this.disposeTheme?.();
+    this.disposeTheme = undefined;
+    this.endColumnDrag();
+    if (this.copiedTimer !== undefined) {
+      clearTimeout(this.copiedTimer);
+      this.copiedTimer = undefined;
+    }
+    document.removeEventListener("pointerdown", this.onDocPointerDown, true);
+    document.removeEventListener("keydown", this.onDocKeyDown, true);
+  }
+
+  willUpdate(changed: PropertyValues): void {
+    // An empty filter is All (issue #30): the protocol says a host never sends
+    // one, but a host that did tinted the trigger "scoped" under a label
+    // reading "All branches". Folded here, so every reader sees the same thing.
+    // …unless it is a preset's: "Current branch" on a detached HEAD ticks no
+    // branch and walks HEAD alone, which is not every branch.
+    if (changed.has("refFilter") && this.refFilter?.length === 0 && !this.refPreset) this.refFilter = null;
+  }
+
+  updated(changed: PropertyValues): void {
+    if (changed.has("rows")) {
+      // Rows built under a DIFFERENT filter are a different history, not a
+      // refresh of this one: start at its top. Kept, the old offset opened
+      // the new graph part-way down (Sep 2 instead of HEAD) and, sitting near
+      // the new bottom, chain-loaded every page at once. A refresh under the
+      // same filter keeps its place, as it always has.
+      const key = scrollKey(this.refFilter, this.refPreset);
+      if (this.rowsKey !== undefined && key !== this.rowsKey) this.scrollToTop();
+      this.rowsKey = key;
+      this.rebuildIndex();
+      // New page arrived: re-arm the loader so the next near-bottom fires.
+      this.loadMoreArmed = true;
+      // …and re-run the live search over it. Row indices shift on append, so
+      // the old match list is stale as well as short.
+      //
+      // `searchMatches` is a plain field, and this runs in `updated()` — AFTER
+      // the render that the new rows triggered. So the header had already been
+      // painted from the old list, and nothing scheduled another paint: the
+      // counter stayed a page behind, and a query whose first page had no hits
+      // went on saying "No results" over rows it had just highlighted. Ask for
+      // one more render, and only when the answer actually moved.
+      if (this.searchQuery.trim()) {
+        const before = `${this.searchMatches.length}/${this.matchIdx}`;
+        this.rescanMatches();
+        if (`${this.searchMatches.length}/${this.matchIdx}` !== before) this.requestUpdate();
+      }
+    }
+    // The `.scroller` only exists once we leave the placeholder states, and a
+    // status flip swaps the whole subtree. Lazily (re)bind the virtualizer to
+    // whatever scroller is live now, then paint the visible window. Doing this
+    // every update also re-syncs the count after an append and re-fills the
+    // sizer after any Lit re-render (e.g. a selection change).
+    // Column track widths + hide-classes live on :host and drive both the
+    // header and every row; (re)apply them on every update so a Lit re-render
+    // (selection, search, popover toggle) never drops them.
+    this.applyColumnStyles();
+    // A popover being open needs a document-level click-outside/Escape listener.
+    this.syncPopoverListener();
+    // The Branches picker opens with its filter box focused: with hundreds of
+    // refs, typing is how you find one, and the box is where typing goes.
+    if (changed.has("branchesOpen") && this.branchesOpen) {
+      (this.renderRoot.querySelector(".gh-pop-filter input") as HTMLInputElement | null)?.focus();
+    }
+    // A chip menu opened from the keyboard (a details-pane chip, Enter) takes
+    // focus, so the arrows walk it and Escape brings focus back to the chip.
+    if (changed.has("chipMenu") && this.chipMenu?.focusFirst) {
+      const menu = this.renderRoot.querySelector<HTMLElement>(".gh-chip-menu");
+      (menu?.querySelector<HTMLElement>(".gh-menuitem:not([disabled])") ?? menu)?.focus();
+    }
+    // …and on the side of its trigger that has the room — every update while
+    // open, because a tick widens the trigger's label and moves its edges.
+    // Once more a tick later: in a pane too narrow for its header the header
+    // is still settling when this runs (measured: the trigger 6px further
+    // right one task on), and a shell fitted to the wrong anchor sits 6px
+    // off the pane. Inline styles change no reactive state, so this cannot
+    // loop.
+    if (this.branchesOpen) {
+      this.fitBranchesPopover();
+      setTimeout(() => {
+        if (this.branchesOpen) this.fitBranchesPopover();
+      }, 0);
+    }
+
+    const scroller = this.scroller;
+    if (scroller) {
+      if (!this.virtualizer || this.boundScroller !== scroller) {
+        this.setupVirtualizer(scroller);
+      } else {
+        this.virtualizer.setOptions(this.virtualizerOptions());
+      }
+      this.applyGutterWidth();
+      this.renderRows();
+    } else {
+      // Back to a placeholder: drop the stale virtualizer binding.
+      this.teardownVirtualizer();
+    }
+  }
+
+  // ── Virtualizer wiring ─────────────────────────────────────────────────────
+
+  private virtualizerOptions() {
+    return {
+      count: this.rows.length,
+      getScrollElement: () => this.boundScroller ?? null,
+      estimateSize: () => ROW_HEIGHT,
+      overscan: OVERSCAN,
+      observeElementRect,
+      observeElementOffset,
+      scrollToFn: elementScroll,
+      onChange: () => this.renderRows(),
+    };
+  }
+
+  private setupVirtualizer(scroller: HTMLDivElement): void {
+    this.teardownVirtualizer();
+    this.boundScroller = scroller;
+    const v = new Virtualizer<HTMLDivElement, HTMLDivElement>(
+      this.virtualizerOptions(),
+    );
+    this.virtualizer = v;
+    this.cleanupVirtualizer = v._didMount();
+    v._willUpdate();
+  }
+
+  /**
+   * Back to the first row, before the paint that follows. The virtualizer
+   * learns its offset from scroll events, which arrive a frame later (and
+   * never in an occluded webview) — it is told now, or it paints the old
+   * window over an empty top.
+   */
+  private scrollToTop(): void {
+    const s = this.boundScroller;
+    if (!s || s.scrollTop === 0) return;
+    s.scrollTop = 0;
+    s.dispatchEvent(new Event("scroll"));
+  }
+
+  private teardownVirtualizer(): void {
+    this.cleanupVirtualizer?.();
+    this.cleanupVirtualizer = undefined;
+    this.virtualizer = undefined;
+    this.boundScroller = undefined;
+  }
+
+  private rebuildIndex(): void {
+    this.shaToIndex.clear();
+    for (let i = 0; i < this.rows.length; i++) {
+      this.shaToIndex.set(this.rows[i].sha, i);
+    }
+    // A selection that survives a row set it is no longer part of is a lie in
+    // three places at once. Refresh reloads from the FIRST page, so after
+    // paging deep and selecting something near the bottom, the selected sha was
+    // simply gone: no `.row.selected` anywhere in the DOM, `selectedSha` still
+    // set, and `aria-activedescendant` pointing at an id that does not exist —
+    // which a screen reader announces as a row that is not there.
+    if (this.selectedSha !== undefined && !this.shaToIndex.has(this.selectedSha)) {
+      this.selectedSha = undefined;
+    }
+  }
+
+  /** Gutter render width: capped columns × pitch + inset + avatar half-width. */
+  private gutterWidth(): number {
+    const cols = Math.min(
+      Math.max(this.totalColumns, 1),
+      MAX_GUTTER_COLUMNS,
+    );
+    return Math.max(
+      MIN_GUTTER_WIDTH,
+      NODE_INSET + cols * COL_WIDTH + COL_WIDTH / 2 + AVATAR_SIZE / 2 + 2,
+    );
+  }
+
+  /**
+   * The deepest lane whose NODE fits inside `width`. `.gutter` hides its
+   * overflow, so a node drawn past this is not merely cut in half — it is gone,
+   * and the commit renders as a text row with nothing in the graph beside it.
+   * Lanes past this fold onto it, marked.
+   */
+  private maxDrawableColumn(width: number): number {
+    return lastDrawableLane(width, COL_WIDTH, NODE_INSET, NODE_RADIUS);
+  }
+
+  private applyGutterWidth(): void {
+    // A user-dragged width wins over the lane-count auto-size (reset restores).
+    const w = this.colWidths.graph ?? this.gutterWidth();
+    this.style.setProperty("--gs-gutter-w", `${w}px`);
+  }
+
+  // ── Column preferences: resize, show/hide, persistence ─────────────────────
+
+  /** Load persisted widths + hidden set + search scope from localStorage. */
+  private loadColumnPrefs(): void {
+    try {
+      const raw = localStorage.getItem(LS_COL_WIDTHS);
+      if (raw) {
+        const obj = JSON.parse(raw) as Record<string, unknown>;
+        for (const spec of COLUMN_SPECS) {
+          const v = obj[spec.id];
+          if (typeof v === "number" && Number.isFinite(v)) {
+            this.colWidths[spec.id] = this.clampCol(spec, v);
+          }
+        }
+      }
+    } catch {
+      /* corrupt/unavailable storage → fall back to defaults */
+    }
+    try {
+      const raw = localStorage.getItem(LS_COL_HIDDEN);
+      if (raw) {
+        const arr = JSON.parse(raw);
+        if (Array.isArray(arr)) {
+          for (const id of arr) {
+            const spec = COLUMN_BY_ID.get(id);
+            if (spec && spec.hideable !== false) {
+              this.hiddenCols.add(id as ColumnSpec["id"]);
+            }
+          }
+        }
+      }
+    } catch {
+      /* ignore */
+    }
+    try {
+      const s = localStorage.getItem(LS_SEARCH_SCOPE);
+      if (s && SEARCH_SCOPES.some((x) => x.id === s)) {
+        this.searchScope = s as SearchScope;
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+
+  private clampCol(spec: ColumnSpec, w: number): number {
+    const own = Math.max(spec.min, Math.min(spec.max, w));
+    return Math.round(Math.min(own, this.availableColWidth(spec)));
+  }
+
+  /**
+   * The widest this column may become before it starts eating its neighbours.
+   *
+   * WHY THIS EXISTS. The clamp used to bound a column by its OWN min/max only,
+   * with nothing watching the total. Every metadata track is `minmax(0, …)`, so
+   * once the widths summed past the host they did not push back — they
+   * collapsed, and Changes / Author / Date crushed down to "C A D" while the
+   * message kept the space. Dragging any one divider could wreck every column
+   * to its right.
+   *
+   * The budget is the host minus every OTHER visible track minus the floor the
+   * commit message is entitled to, so a drag stops at the point where something
+   * else would have to give.
+   */
+  private availableColWidth(spec: ColumnSpec): number {
+    const host = this.clientWidth;
+    if (host <= 0) return spec.max;
+    let others = 0;
+    for (const id of this.visibleTrackIds()) {
+      if (id === spec.id) continue;
+      const other = COLUMN_BY_ID.get(id)!;
+      others +=
+        id === "graph"
+          ? (this.colWidths.graph ?? this.gutterWidth())
+          : (this.colWidths[id] ?? this.defaultColWidth(other));
+    }
+    return Math.max(spec.min, host - others - this.subjectFloor());
+  }
+
+  /**
+   * Which column tracks are actually on screen — the user's hidden set AND the
+   * responsive ladder, which drops trailing columns via container queries that
+   * never call back into JS.
+   */
+  private visibleTrackIds(): ColumnSpec["id"][] {
+    const host = this.clientWidth;
+    const compact = this.hasAttribute("compact");
+    const out: ColumnSpec["id"][] = [];
+    for (const spec of COLUMN_SPECS) {
+      if (this.hiddenCols.has(spec.id)) continue;
+      if (compact) {
+        // Compact has no Branch/Tag track (chips flow inline) and no SHA track.
+        if (spec.id === "refs" || spec.id === "sha") continue;
+        if (host > 0 && host <= COMPACT_DROP_DATE_AT && spec.id === "date") continue;
+        if (host > 0 && host <= COMPACT_DROP_AUTHOR_AT && spec.id === "author") continue;
+      } else if (
+        host > 0 &&
+        host <= COLUMN_DROP_TAIL_AT &&
+        (spec.id === "date" || spec.id === "sha")
+      ) {
+        continue;
+      }
+      out.push(spec.id);
+    }
+    return out;
+  }
+
+  /** The floor the message track is entitled to at this width — matches the CSS. */
+  private subjectFloor(): number {
+    const host = this.clientWidth;
+    if (!this.hasAttribute("compact")) return SUBJECT_MIN_WIDTH;
+    if (host > 0 && host <= COMPACT_DROP_AUTHOR_AT) return SUBJECT_MIN_COMPACT_TIGHT;
+    if (host > 0 && host <= COMPACT_DROP_DATE_AT) return SUBJECT_MIN_COMPACT_MID;
+    return SUBJECT_MIN_WIDTH;
+  }
+
+  /** Reflect column widths (as :host CSS vars) + hidden set (as :host classes).
+   *  A hidden column's track is forced to 0 on the INLINE style — the saved
+   *  width stays in `colWidths` so re-showing restores it, but inline style
+   *  outranks the `:host(.hide-*)` stylesheet rule, so we must zero it here or a
+   *  previously-resized-then-hidden column would leave a ghost gap. */
+  private applyColumnStyles(): void {
+    for (const spec of COLUMN_SPECS) {
+      // The graph track is owned by applyGutterWidth (auto-size + override).
+      if (spec.id === "graph") continue;
+      const hidden = this.hiddenCols.has(spec.id);
+      // refs falls back to its auto-fit rather than to the CSS literal, so the
+      // track, the chip cap and the fold all read the same number.
+      const w =
+        this.colWidths[spec.id] ??
+        (spec.id === "refs" ? this.autoRefsWidth() : undefined);
+      if (hidden) {
+        this.style.setProperty(spec.cssVar, "0px");
+      } else if (w !== undefined) {
+        this.style.setProperty(spec.cssVar, `${w}px`);
+      } else {
+        this.style.removeProperty(spec.cssVar);
+      }
+      this.classList.toggle(`hide-${spec.id}`, hidden);
+    }
+  }
+
+  private persistWidths(): void {
+    try {
+      localStorage.setItem(LS_COL_WIDTHS, JSON.stringify(this.colWidths));
+    } catch {
+      /* storage may be unavailable; non-fatal */
+    }
+  }
+
+  private persistHidden(): void {
+    try {
+      localStorage.setItem(LS_COL_HIDDEN, JSON.stringify([...this.hiddenCols]));
+    } catch {
+      /* non-fatal */
+    }
+  }
+
+  // ── Column resize (pointer drag on a header handle) ────────────────────────
+
+  private onResizeHandlePointerDown = (e: PointerEvent): void => {
+    if (e.button !== 0) return;
+    const handle = e.currentTarget as HTMLElement;
+    const id = handle.dataset.col as ColumnSpec["id"] | undefined;
+    const spec = id ? COLUMN_BY_ID.get(id) : undefined;
+    if (!spec) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const startW = this.colWidths[spec.id] ?? this.defaultColWidth(spec);
+    const invert = handle.dataset.invert === "1";
+    this.drag = { id: spec.id, startX: e.clientX, startW, handle, invert };
+    handle.classList.add("dragging");
+    this.classList.add("col-dragging");
+    try {
+      handle.setPointerCapture(e.pointerId);
+    } catch {
+      /* setPointerCapture can throw if the pointer is already released */
+    }
+    handle.addEventListener("pointermove", this.onResizePointerMove);
+    handle.addEventListener("pointerup", this.onResizePointerUp);
+    handle.addEventListener("pointercancel", this.onResizePointerUp);
+  };
+
+  private onResizePointerMove = (e: PointerEvent): void => {
+    const d = this.drag;
+    if (!d) return;
+    const spec = COLUMN_BY_ID.get(d.id)!;
+    const dx = e.clientX - d.startX;
+    const next = this.clampCol(spec, d.startW + (d.invert ? -dx : dx));
+    this.colWidths[d.id] = next;
+    this.style.setProperty(spec.cssVar, `${next}px`);
+    // Re-fit the ref chips as you drag, not just on release.
+    //
+    // Chip fitting is width-aware and DESTRUCTIVE: refsHtml budgets against
+    // colWidths.refs and breaks out of the loop, so chips that don't fit are
+    // absent from the DOM rather than clipped by CSS. Without a re-render the
+    // column visibly widens while the chips stay folded behind a "+2", and
+    // everything snaps into place only on pointerup. The keyboard resize path
+    // has always re-rendered on every nudge; this makes the drag agree.
+    //
+    // `graph` needs it for the same reason now. That was not true when this was
+    // written — the gutter derived its width purely from the lane count — but
+    // the SVG is sized from `colWidths.graph` since deep lanes became
+    // draggable-to-reveal, so without a re-render the column widens while the
+    // rows keep their old canvas and the fold does not move. The feature that
+    // change was made FOR was inert during the drag.
+    //
+    // Coalesced to one frame: pointermove fires far faster than we lay out rows.
+    if ((d.id === "refs" || d.id === "graph") && this.resizeRaf === 0) {
+      this.resizeRaf = requestAnimationFrame(() => {
+        this.resizeRaf = 0;
+        if (this.drag) this.renderRows();
+      });
+    }
+  };
+
+  private onResizePointerUp = (): void => {
+    if (this.drag) this.persistWidths();
+    this.endColumnDrag();
+    // Final settle at the committed width.
+    this.renderRows();
+  };
+
+  private endColumnDrag(): void {
+    if (this.resizeRaf !== 0) {
+      cancelAnimationFrame(this.resizeRaf);
+      this.resizeRaf = 0;
+    }
+    const d = this.drag;
+    if (d) {
+      d.handle.classList.remove("dragging");
+      d.handle.removeEventListener("pointermove", this.onResizePointerMove);
+      d.handle.removeEventListener("pointerup", this.onResizePointerUp);
+      d.handle.removeEventListener("pointercancel", this.onResizePointerUp);
+    }
+    this.drag = null;
+    this.classList.remove("col-dragging");
+  }
+
+  /** Double-click a handle → reset that column to its default width. */
+  private onResizeHandleDblClick = (e: MouseEvent): void => {
+    const id = (e.currentTarget as HTMLElement).dataset.col as
+      | ColumnSpec["id"]
+      | undefined;
+    if (!id) return;
+    e.preventDefault();
+    e.stopPropagation();
+    this.resetColumnWidth(id);
+  };
+
+  /** Keyboard resize: Left/Right nudge, Home reset (handles are focusable). */
+  private onResizeHandleKey = (e: KeyboardEvent): void => {
+    const id = (e.currentTarget as HTMLElement).dataset.col as
+      | ColumnSpec["id"]
+      | undefined;
+    const spec = id ? COLUMN_BY_ID.get(id) : undefined;
+    if (!spec) return;
+    if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+      e.preventDefault();
+      const invert = (e.currentTarget as HTMLElement).dataset.invert === "1";
+      const step = (e.shiftKey ? 16 : 6) * (invert ? -1 : 1);
+      const cur = this.colWidths[spec.id] ?? this.defaultColWidth(spec);
+      const next = this.clampCol(spec, cur + (e.key === "ArrowRight" ? step : -step));
+      this.colWidths[spec.id] = next;
+      this.style.setProperty(spec.cssVar, `${next}px`);
+      this.persistWidths();
+      this.renderRows();
+    } else if (e.key === "Home") {
+      e.preventDefault();
+      this.resetColumnWidth(spec.id);
+    }
+  };
+
+  private resetColumnWidth(id: ColumnSpec["id"]): void {
+    const spec = COLUMN_BY_ID.get(id)!;
+    delete this.colWidths[id];
+    this.style.removeProperty(spec.cssVar);
+    if (id === "graph") this.applyGutterWidth(); // back to lane-count auto-size
+    this.persistWidths();
+    this.renderRows();
+  }
+
+  /**
+   * Restore every column to its default width in one go. Saved widths persist
+   * across sessions, so a layout dragged wide months ago keeps starving the
+   * commit message on every future open — this is the way back without hunting
+   * for each grip.
+   */
+  private resetAllColumnWidths = (e?: Event): void => {
+    e?.stopPropagation();
+    for (const spec of COLUMN_SPECS) {
+      delete this.colWidths[spec.id];
+      this.style.removeProperty(spec.cssVar);
+    }
+    this.applyGutterWidth(); // graph column returns to its lane-count auto-size
+    this.persistWidths();
+    this.renderRows();
+    this.columnsOpen = false;
+  };
+
+  /** Effective default width — graph and refs both default to their auto-size. */
+  private defaultColWidth(spec: ColumnSpec): number {
+    if (spec.id === "graph") return this.gutterWidth();
+    if (spec.id === "refs") return this.autoRefsWidth();
+    return spec.def;
+  }
+
+  /**
+   * Auto-fit width for the Branch/Tag track: enough for the busiest ref row
+   * that is actually loaded, clamped to the column's own min/max. A user drag
+   * overrides it (dbl-click / Home on the grip restores auto), exactly as it
+   * works for the graph gutter.
+   *
+   * WHY THIS EXISTS. The track used to sit at a fixed default whatever the
+   * repo held, and the grid handed every spare pixel to the subject's 1fr. On a
+   * wide window that produced the worst of both: a one-line commit message
+   * floating in ~700px of nothing, next to an "origin/feat/..." chip clipped by
+   * a column that had no idea it was too narrow. Refs are content, not
+   * metadata, so they get measured and the subject takes what is left.
+   *
+   * A ref-less repo returns the MINIMUM, giving the whole track to the subject
+   * rather than reserving an empty column.
+   */
+  private autoRefsWidth(): number {
+    const spec = COLUMN_BY_ID.get("refs")!;
+    // O(rows), and re-entered on every Lit update, so memoise. The key is
+    // (row count, host width): the ref set cannot change without the rows
+    // changing, and the budget cannot change without a resize.
+    const host = this.clientWidth;
+    if (this.autoRefs.n === this.rows.length && this.autoRefs.host === host) {
+      return this.autoRefs.w;
+    }
+
+    const fitted = fitRefsWidth({
+      wanted: wantedRefsWidth(this.rows, spec.max, spec.min),
+      host,
+      nonRefs: this.nonRefsWidth(),
+      // A flat 420px comfort floor is most of a narrow host, which starved the
+      // refs track to its minimum on any window under ~1000px. Scale it: the
+      // message still leads, but it stops claiming the entire surface.
+      comfort: Math.min(SUBJECT_COMFORT_WIDTH, Math.round(host * 0.42)),
+      min: spec.min,
+      max: spec.max,
+      // The same floor a manual drag may squeeze the subject to. Refs yield to
+      // the subject's COMFORT first, then stop at the width where a ref name is
+      // still readable — rather than collapsing to a 60px track that can show
+      // only chrome. See fitRefsWidth.
+      subjectFloor: this.subjectFloor(),
+      legible: legibleRefsWidth(this.rows),
+    });
+    this.autoRefs = { n: this.rows.length, host, w: fitted };
+    return fitted;
+  }
+
+  /**
+   * The width the ref chips actually get — which is NOT always the column.
+   *
+   * In compact mode, and in any host under INLINE_REFS_BELOW, the refs are not
+   * a track at all: they flow inline before the message under a CSS max-width.
+   * Folding against the column figure there would budget against a number that
+   * is not on screen — too generous in a sidebar (chips clipped with no "+N"
+   * to explain them) and too mean once the auto-fit is allowed to shrink.
+   */
+  private refsBudget(): number {
+    if (this.hiddenCols.has("refs")) return 0;
+    const host = this.clientWidth;
+    if (host <= 0) return this.colWidths.refs ?? this.autoRefsWidth();
+
+    if (this.hasAttribute("compact")) {
+      // Compact keeps its columns; the refs share the MESSAGE track with the
+      // subject, capped at COMPACT_REFS_SHARE of it. Budgeting against the whole
+      // row instead (which is what "content area" used to mean here) was nearly
+      // double the real cap, so the fold kept two chips the CSS then clipped to
+      // "0.." — a clipped chip and no "+N" to say anything was hidden.
+      const track = host - this.nonRefsWidth();
+      return Math.max(0, Math.round(track * COMPACT_REFS_SHARE));
+    }
+    if (host < INLINE_REFS_BELOW) {
+      // Sidebar: no columns at all, the refs flow inline across the whole row.
+      const content = host - (this.colWidths.graph ?? this.gutterWidth());
+      return Math.max(0, Math.round(content * SIDEBAR_REFS_SHARE));
+    }
+    return this.colWidths.refs ?? this.autoRefsWidth();
+  }
+
+  /**
+   * Total width of every track except Branch/Tag and the message itself.
+   *
+   * Columns the RESPONSIVE ladder has dropped are excluded as well as ones the
+   * user hid: below 760px date and sha are not on screen, and counting them
+   * charged the refs budget ~130px of width that nothing was occupying.
+   */
+  private nonRefsWidth(): number {
+    let w = this.colWidths.graph ?? this.gutterWidth();
+    for (const id of this.visibleTrackIds()) {
+      if (id === "graph" || id === "refs") continue;
+      w += this.colWidths[id] ?? COLUMN_BY_ID.get(id)!.def;
+    }
+    return w;
+  }
+
+  // ── Show / hide columns ────────────────────────────────────────────────────
+
+  private toggleColumn(id: ColumnSpec["id"]): void {
+    if (COLUMN_BY_ID.get(id)?.hideable === false) return;
+    if (this.hiddenCols.has(id)) this.hiddenCols.delete(id);
+    else this.hiddenCols.add(id);
+    this.persistHidden();
+    this.applyColumnStyles();
+    this.requestUpdate(); // refresh the popover's checkmarks
+  }
+
+  // ── Popovers (Columns + search scope): open/close + dismissal ──────────────
+
+  private toggleColumnsPopover = (e?: Event): void => {
+    e?.stopPropagation();
+    this.scopeOpen = false;
+    this.branchesOpen = false;
+    this.columnsOpen = !this.columnsOpen;
+  };
+
+  private toggleScopePopover = (e?: Event): void => {
+    e?.stopPropagation();
+    this.columnsOpen = false;
+    this.branchesOpen = false;
+    this.scopeOpen = !this.scopeOpen;
+  };
+
+  private toggleBranchesPopover = (e?: Event): void => {
+    e?.stopPropagation();
+    this.columnsOpen = false;
+    this.scopeOpen = false;
+    this.branchesOpen = !this.branchesOpen;
+    // A fresh open starts with the whole list; the query is not a preference.
+    if (this.branchesOpen) this.branchQuery = "";
+  };
+
+  /**
+   * The picker is anchored to its trigger's right edge and opens leftwards
+   * (see the CSS); when the trigger sits within a shell's width of the pane's
+   * left edge that runs the presets and the filter box off the pane, so it
+   * opens rightwards instead. Measured, not a width breakpoint: where the
+   * trigger lands depends on the search box and the count beside it.
+   *
+   * When NEITHER side has the room — a graph pane at its 320px floor beside
+   * a wide details pane — choosing a side only chooses which edge to run
+   * off, and the host clips the overflow (`overflow: hidden`): the filter
+   * box's end and the CURRENT tag were cut, and the pixels there hit-tested
+   * to the pane behind. So the shell is then pulled back inside the pane by
+   * the overflow, as far as the pane's own left edge allows.
+   *
+   * The height is measured too. The CSS caps the shell at 100vh less the
+   * header, but a host may overlay the bottom of the pane: the desktop's
+   * terminal dock is an overlay footer that shrinks nothing above it, and it
+   * publishes its height as `--dock-reserve`, which inherits into this shadow
+   * root. With the dock expanded the picker's tail — the Tags group, the
+   * "N of M ticked" hint — sat under the terminal, and clicked the terminal.
+   * The list gives its height up first, so the presets, the filter box and
+   * the hint stay put; the shell scrolls as a whole only below that.
+   */
+  private fitBranchesPopover(): void {
+    const pop = this.renderRoot.querySelector<HTMLElement>(".gh-branches-pop");
+    const anchor = pop?.parentElement?.getBoundingClientRect();
+    if (!pop || !anchor) return;
+    const host = this.getBoundingClientRect();
+    // Anchored right, the shell's left edge is the anchor's right edge minus
+    // the shell's own width — the same width whichever side it opens on.
+    const overLeft = anchor.right - pop.offsetWidth < host.left + 6;
+    pop.classList.toggle("open-right", overLeft);
+    // Then where it actually landed — the narrow-pane CSS rule opens it
+    // rightwards on its own — pulled back inside by any overflow, the pane's
+    // left edge winning when even that is not enough. `right` is released
+    // with it: a shell anchored by both edges would stretch, not move.
+    pop.style.left = "";
+    pop.style.right = "";
+    const r = pop.getBoundingClientRect();
+    let shift = 0;
+    if (r.right > host.right - 6) shift = host.right - 6 - r.right;
+    if (r.left + shift < host.left + 6) shift = host.left + 6 - r.left;
+    if (shift) {
+      pop.style.left = `${Math.round(r.left - anchor.left + shift)}px`;
+      pop.style.right = "auto";
+    }
+
+    const reserve =
+      parseFloat(getComputedStyle(this).getPropertyValue("--dock-reserve")) || 0;
+    // The border-box height the shell may have, top edge to the dock.
+    const room = host.bottom - reserve - r.top - 6;
+    // max-height is a CONTENT height on this content-box shell, so the
+    // border and padding come off first. The list gets what is left after
+    // the presets, the box and the hint: scrollHeight is the shell's content
+    // whatever its clamp, so (room − borders − scrollHeight + list) is the
+    // list height at which the whole shell lands on `room` exactly.
+    const ps = getComputedStyle(pop);
+    const borders = pop.offsetHeight - pop.clientHeight;
+    const pad = parseFloat(ps.paddingTop) + parseFloat(ps.paddingBottom);
+    pop.style.maxHeight = `${Math.max(120, Math.round(room - borders - pad))}px`;
+    const list = pop.querySelector<HTMLElement>(".gh-pop-list");
+    if (list) {
+      const share = room - borders - pop.scrollHeight + list.offsetHeight;
+      list.style.maxHeight = `${Math.max(56, Math.min(300, Math.round(share)))}px`;
+    }
+  }
+
+  private closePopovers(): void {
+    if (this.columnsOpen || this.scopeOpen || this.branchesOpen) {
+      this.columnsOpen = false;
+      this.scopeOpen = false;
+      this.branchesOpen = false;
+    }
+    if (this.commitMenu) {
+      this.commitMenu = null;
+    }
+    if (this.chipMenu) {
+      this.chipMenu = null;
+    }
+  }
+
+  /** Open the in-graph commit actions popover at (x, y). x < 0 → near the
+   *  selected row (keyboard menu). Host-driven; replaces the native quick-pick. */
+  showCommitMenu(
+    sha: string,
+    x: number,
+    y: number,
+    title: string,
+    items: CommitMenuItem[],
+  ): void {
+    this.columnsOpen = false;
+    this.scopeOpen = false;
+    this.branchesOpen = false;
+    this.chipMenu = null;
+    let px = x;
+    let py = y;
+    if (x < 0 || y < 0) {
+      const row = this.renderRoot.querySelector<HTMLElement>(".row.selected");
+      const r = row?.getBoundingClientRect();
+      px = r ? r.left + 24 : window.innerWidth / 2;
+      py = r ? r.bottom : window.innerHeight / 2;
+    }
+    this.commitMenu = { sha, x: px, y: py, title, items };
+  }
+
+  /** Attach/detach the document click-outside/Escape listeners as popovers
+   *  open/close. Escape must dismiss from ANYWHERE — focus often sits on the
+   *  trigger (the filter button / the clicked row), not inside the popover, so
+   *  the popover's own keydown handler never sees it (same fix as the rail). */
+  private syncPopoverListener(): void {
+    const open =
+      this.columnsOpen ||
+      this.scopeOpen ||
+      this.branchesOpen ||
+      this.commitMenu !== null ||
+      this.chipMenu !== null;
+    document.removeEventListener("pointerdown", this.onDocPointerDown, true);
+    document.removeEventListener("keydown", this.onDocKeyDown, true);
+    if (open) {
+      document.addEventListener("pointerdown", this.onDocPointerDown, true);
+      document.addEventListener("keydown", this.onDocKeyDown, true);
+    }
+  }
+
+  private onDocKeyDown = (e: KeyboardEvent): void => {
+    if (e.key !== "Escape") return;
+    e.preventDefault();
+    e.stopPropagation();
+    // This runs at the document in the CAPTURE phase and stops the event
+    // here, so a popover's own Escape handler never sees it — the refocus has
+    // to happen here or nowhere. The item that had focus is about to be
+    // removed with the popover; hand it back to the trigger that opened it,
+    // or a keyboard user is dropped on <body>.
+    this.closeAndRefocus();
+  };
+
+  /** Close the open popover and give focus back to what opened it: the
+   *  trigger in this element, or — for a chip menu opened from outside it
+   *  (openRefMenu) — that chip. */
+  private closeAndRefocus(): void {
+    const opener = this.chipMenu?.opener;
+    const sel = this.popoverTrigger();
+    this.closePopovers();
+    if (opener) {
+      void this.updateComplete.then(() => {
+        if (opener.isConnected) opener.focus();
+      });
+    } else if (sel) {
+      this.focusAfterUpdate(sel);
+    }
+  }
+
+  /** Focus `sel` once the pending render has removed the popover — after the
+   *  update, not a frame later, so nothing else can take focus in between. */
+  private focusAfterUpdate(sel: string): void {
+    void this.updateComplete.then(() => {
+      (this.renderRoot.querySelector(sel) as HTMLElement | null)?.focus();
+    });
+  }
+
+  /** The selector of the trigger behind the open anchored popover, if any.
+   *  Each trigger has one of its own: the Branches trigger shares the scope
+   *  button's classes, so a bare ".gh-scope" would find whichever comes first
+   *  in the header, not the one the popover belongs to. */
+  private popoverTrigger(): string | undefined {
+    if (this.columnsOpen) return ".gh-columns-btn";
+    if (this.branchesOpen) return ".gh-branches";
+    if (this.scopeOpen) return ".gh-search .gh-scope";
+    // The commit and chip menus open from a row, and a row's chips are not
+    // focusable: the list takes the keyboard back, as it does in the rail.
+    if (this.commitMenu || this.chipMenu) return ".scroller";
+    return undefined;
+  }
+
+  // A pointerdown anywhere outside an open popover (the event re-targets to the
+  // host from outside the shadow root) dismisses it. Clicks inside the shadow
+  // popover keep `composedPath()` containing a `.gh-pop`, so we leave it open.
+  private onDocPointerDown = (e: Event): void => {
+    const path = e.composedPath();
+    const insidePop = path.some(
+      (n) =>
+        n instanceof HTMLElement &&
+        (n.classList.contains("gh-pop") || n.classList.contains("gh-anchor")),
+    );
+    if (!insidePop) this.closePopovers();
+    // A pinned "+N" card is dismissed the same way, unless the pointer went
+    // down inside the card itself (that is a row being taken).
+    if (
+      this.refTip.isPinned &&
+      !path.some(
+        (n) => n instanceof HTMLElement && (n.classList.contains("reftip") || n.classList.contains("chip-overflow")),
+      )
+    ) {
+      this.refTip.dismiss();
+    }
+  };
+
+  private onPopoverKeyDown = (e: KeyboardEvent): void => {
+    if (e.key === "Escape") {
+      e.preventDefault();
+      e.stopPropagation();
+      // Reached only when no document listener is attached (the trigger's own
+      // keydown while its popover is closed); with one open, onDocKeyDown
+      // handles Escape and this never runs. Same outcome either way: focus
+      // goes back to the trigger so keyboard users aren't stranded.
+      this.closeAndRefocus();
+    } else if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      // The picker's filter box takes its own arrow keys only when there is
+      // nowhere to go; a caret in a one-line input has no use for them, so
+      // ArrowDown from the box lands on the first row, like a quick-pick.
+      e.preventDefault();
+      const items = Array.from(
+        this.renderRoot.querySelectorAll<HTMLElement>(".gh-pop .gh-menuitem:not([disabled])"),
+      );
+      if (!items.length) return;
+      const root = this.renderRoot as ShadowRoot;
+      const active = (root.activeElement ?? null) as HTMLElement | null;
+      const i = items.findIndex((x) => x === active);
+      const n = items.length;
+      // From outside the rows (the filter box, the trigger) ArrowUp lands on
+      // the LAST row: wrapping (i - 1 + n) % n from i = -1 is the second-to-last.
+      const next =
+        i < 0 ? (e.key === "ArrowDown" ? 0 : n - 1) : e.key === "ArrowDown" ? (i + 1) % n : (i - 1 + n) % n;
+      items[next]?.focus();
+    }
+  };
+
+  // ── Search scope ───────────────────────────────────────────────────────────
+
+  private setSearchScope(scope: SearchScope): void {
+    this.searchScope = scope;
+    this.scopeOpen = false;
+    try {
+      localStorage.setItem(LS_SEARCH_SCOPE, scope);
+    } catch {
+      /* non-fatal */
+    }
+    this.computeMatches();
+    this.renderRows();
+    // Refocus the input so the user can keep typing/jumping.
+    requestAnimationFrame(() => {
+      (this.renderRoot.querySelector(".gh-input") as HTMLInputElement | null)?.focus();
+    });
+  }
+
+  // ── Branch filter (issue #30) ──────────────────────────────────────────────
+
+  /**
+   * Apply a new filter: shown here at once, so the tick and the trigger move
+   * under the pointer, and posted to the host, whose graphInit is the word on
+   * what was actually applied (a ref that vanished is dropped there). The
+   * picker stays open — one tick is rarely the whole selection.
+   */
+  private applyRefFilter(refs: GraphRefFilter, preset?: RefPreset): void {
+    const p = preset && preset !== "all" ? preset : undefined;
+    if (sameRefFilter(refs, this.refFilter) && p === this.refPreset) return;
+    this.refFilter = refs;
+    this.refPreset = p;
+    // A preset goes to the host as what it MEANS (presetRefs), so it is stored
+    // that way and follows a checkout; the ticks above are what it means now.
+    this.onAction({ type: "setRefFilter", refs: p ? presetRefs(p) : refs });
+  }
+
+  private onBranchQueryInput = (e: Event): void => {
+    this.branchQuery = (e.target as HTMLInputElement).value;
+  };
+
+  /** Open a chip's own menu at (x, y): the filter shortcuts for that ref. */
+  private openChipMenu(chip: HTMLElement, x: number, y: number): void {
+    const name = chip.dataset.ref;
+    if (!name) return;
+    const kind = (chip.dataset.kind ?? "head") as WireRef["kind"];
+    // The chip and the remote twins folded into it move as one thing — what
+    // you see is "main ☁", and "only this" means what you see. Both by FULL
+    // name, as the chip carries them (foldRefs).
+    const fullName = chip.dataset.full ?? "";
+    const twins = (chip.dataset.twins ?? "").split(",").filter(Boolean);
+    const sha = (chip.closest(".row") as HTMLElement | null)?.dataset.sha ?? "";
+    this.showChipMenu({ name, fullName, kind, sha, x, y }, twins);
+  }
+
+  /**
+   * The same chip menu, for a ref chip that lives OUTSIDE the graph — the
+   * commit-details pane beside it (issue #30: "clicking a ref chip could also
+   * be a shortcut"). The pane has no ref list and no filter of its own; the
+   * graph owns both, so the pane asks the graph, and a pick goes through the
+   * one applyRefFilter every other tick goes through.
+   *
+   * `fullName` is the chip's ref as git named it in full (WireRef.fullName),
+   * resolved through the ref list like every chip (chipRefs); `name` is git's
+   * short form, carried for the host's checkout request only. `twins` are the
+   * full names of remote twins folded into the chip. `opener` gets focus back
+   * on Escape; `keyboard` focuses the first item, so a menu opened with Enter
+   * can be driven with the arrows.
+   */
+  openRefMenu(
+    ref: { name: string; fullName: string; kind: WireRef["kind"] },
+    x: number,
+    y: number,
+    sha: string,
+    opts: { opener?: HTMLElement; keyboard?: boolean; twins?: readonly string[] } = {},
+  ): void {
+    if (!ref.name && !ref.fullName) return;
+    this.showChipMenu(
+      { name: ref.name, fullName: ref.fullName, kind: ref.kind, sha, x, y, opener: opts.opener, focusFirst: opts.keyboard },
+      opts.twins ?? [],
+    );
+  }
+
+  private showChipMenu(
+    m: Omit<NonNullable<CommitGraph["chipMenu"]>, "refs">,
+    twins: readonly string[],
+  ): void {
+    // Resolved through the picker's list by FULL name: see chipRefs.
+    const refs = chipRefs(this.refList, m.fullName, twins);
+    this.columnsOpen = false;
+    this.scopeOpen = false;
+    this.branchesOpen = false;
+    this.commitMenu = null;
+    this.chipMenu = { ...m, refs };
+  }
+
+  // ── Click-to-copy the full sha ─────────────────────────────────────────────
+
+  /** Copy a row's FULL sha; flash an inline "Copied" confirmation for ~1s. */
+  private copySha(sha: string, cell: HTMLElement): void {
+    // Restore any cell still showing a prior "Copied" flash before re-arming, so
+    // overlapping copies don't strand a cell in the confirmation state. (The
+    // virtualizer may also recycle the node out from under the timer; reading
+    // the label off the *current* target keeps the restore correct.)
+    if (this.copiedTimer !== undefined) {
+      clearTimeout(this.copiedTimer);
+      this.copiedTimer = undefined;
+    }
+    const label = cell.getAttribute("data-label") ?? esc(sha.slice(0, 7));
+    const done = () => {
+      cell.classList.add("copied");
+      cell.innerHTML =
+        `<span class="codicon codicon-check" aria-hidden="true"></span>Copied`;
+      this.copiedTimer = window.setTimeout(() => {
+        cell.classList.remove("copied");
+        cell.innerHTML =
+          `${label}<span class="codicon codicon-copy" aria-hidden="true"></span>`;
+        this.copiedTimer = undefined;
+      }, 1000);
+    };
+    try {
+      const p = navigator.clipboard?.writeText(sha);
+      if (p && typeof p.then === "function") p.then(done).catch(() => done());
+      else done();
+    } catch {
+      // Even if the clipboard API is unavailable, show feedback so the control
+      // never feels dead.
+      done();
+    }
+  }
+
+  // ── The hot path: render only the visible window into the sizer ────────────
+
+  private renderRows(): void {
+    const v = this.virtualizer;
+    const sizer = this.renderRoot.querySelector(".sizer") as HTMLElement | null;
+    if (!v || !sizer) {
+      return;
+    }
+    // Every repaint replaces the row DOM wholesale, so the pill the card is
+    // anchored to stops existing — scrolling with a card open would otherwise
+    // leave it pinned to a commit that has moved.
+    this.refTip.hide();
+    this.authorTip.hide();
+    v._willUpdate();
+    const items = v.getVirtualItems();
+    const total = v.getTotalSize();
+    sizer.style.height = `${total}px`;
+
+    // The width the gutter is actually GIVEN — the same expression
+    // `applyGutterWidth` sets `--gs-gutter-w` from. It used to render at the
+    // capped auto-size regardless, so dragging the Graph column wider bought
+    // nothing but blank space: the SVG stayed 16 lanes wide and everything
+    // past it stayed clipped.
+    const gutterW = this.colWidths.graph ?? this.gutterWidth();
+    let lastIndex = -1;
+    let htmlOut = "";
+    const needStats: string[] = [];
+    for (const item of items) {
+      lastIndex = Math.max(lastIndex, item.index);
+      const row = this.rows[item.index];
+      if (
+        row &&
+        !this.rowStats.has(row.sha) &&
+        !this.pendingStats.has(row.sha) &&
+        !this.statsUnavailable.has(row.sha)
+      ) {
+        needStats.push(row.sha);
+      }
+      htmlOut += this.rowHtml(item, gutterW);
+    }
+    sizer.innerHTML = htmlOut;
+
+    // Lazily request CHANGES-column stats for the just-rendered visible rows.
+    if (needStats.length) {
+      for (const sha of needStats) this.pendingStats.add(sha);
+      this.onAction({ type: "requestStats", shas: needStats });
+    }
+
+    // Infinite scroll: when the rendered window reaches near the tail, ask the
+    // host for more — once per page until a new page resets the arm.
+    if (
+      this.hasMore &&
+      this.loadMoreArmed &&
+      lastIndex >= this.rows.length - LOAD_MORE_THRESHOLD
+    ) {
+      this.loadMoreArmed = false;
+      this.onAction({ type: "loadMore" });
+    }
+  }
+
+  /**
+   * The rewritable chain, from the host. Repaints so the affected rows pick up
+   * their draggable/inert state.
+   */
+  setRebaseChain(chain: {
+    shas: string[];
+    stop: "merge" | "published" | "root";
+    branches?: Record<string, string[]>;
+  }): void {
+    this.chainShas = chain.shas.slice();
+    this.chainStop = chain.stop;
+    this.chainBranches = chain.branches ?? {};
+    this.chainIndex = new Map(this.chainShas.map((sha, i) => [sha, i]));
+    this.renderRows();
+  }
+
+  /** Local branches sitting on chain commits — drives the carry-along option. */
+  get rebaseBranches(): Record<string, string[]> {
+    return this.chainBranches;
+  }
+
+  /** Merge in CHANGES-column stats and repaint the visible rows. */
+  setRowStats(stats: RowStat[]): void {
+    for (const s of stats) {
+      this.rowStats.set(s.sha, s);
+      this.pendingStats.delete(s.sha);
+    }
+    this.renderRows();
+  }
+
+  /**
+   * Release a batch of stat requests that produced no answer.
+   *
+   * `renderRows` skips any sha still in `pendingStats`, and `setRowStats` only
+   * clears the ones it was actually GIVEN — so a batch that failed, or came
+   * back short, left those shas pending forever and their CHANGES cells blank
+   * for the rest of the session.
+   *
+   * The two cases are NOT the same, and treating them alike is a request storm:
+   *
+   *   • `answered` — the host replied, and simply had nothing for these shas.
+   *     That is a real answer ("no stats for this commit"), so record it and
+   *     never ask again. Re-asking would produce the same nothing, forever.
+   *   • rejected — the host errored. Worth another try, but NOT right now:
+   *     clearing and re-rendering here would ask again immediately, get the
+   *     same error, and clear and re-render again. The next natural repaint
+   *     (a scroll, a resize) asks, which is bounded by the user.
+   *
+   * So this never calls `renderRows` itself. That call was the cycle.
+   */
+  failRowStats(shas: readonly string[], answered = true): void {
+    for (const sha of shas) {
+      this.pendingStats.delete(sha);
+      if (answered) this.statsUnavailable.add(sha);
+    }
+  }
+
+  /**
+   * Everything the author card shows, for one row.
+   *
+   * The tallies are over the LOADED rows only — the graph pages, so a total
+   * over all history would need a round trip per hovered author. `partial`
+   * says so out loud ("12 commits in view+") rather than quietly implying the
+   * number is complete.
+   */
+  private authorTipData(row: WireRow): string {
+    if (this.authorFactsFor !== this.rows.length) {
+      this.authorFacts.clear();
+      for (const r of this.rows) {
+        const key = r.authorEmail || r.author;
+        const cur = this.authorFacts.get(key);
+        if (!cur) {
+          this.authorFacts.set(key, { c: 1, f: r.authorDate, l: r.authorDate });
+        } else {
+          cur.c++;
+          if (r.authorDate < cur.f) cur.f = r.authorDate;
+          if (r.authorDate > cur.l) cur.l = r.authorDate;
+        }
+      }
+      this.authorFactsFor = this.rows.length;
+    }
+    const f = this.authorFacts.get(row.authorEmail || row.author);
+    return authorTipData({
+      name: row.author,
+      email: row.authorEmail,
+      commits: f?.c ?? 0,
+      firstSeen: f?.f ?? 0,
+      lastSeen: f?.l ?? 0,
+      partial: this.hasMore,
+    });
+  }
+
+  /** The CHANGES cell: file count + a green/red add/del proportion bar. */
+  private changesHtml(sha: string): string {
+    const s = this.rowStats.get(sha);
+    if (!s || s.files === 0) {
+      return "";
+    }
+    const adds = Math.max(0, s.additions);
+    const dels = Math.max(0, s.deletions);
+    const total = adds + dels;
+    // Bar length grows with the size of the change (log scale) so big commits
+    // read at a glance; the green/red split is the true add/delete proportion,
+    // with a floor so a tiny-but-present side never vanishes.
+    let bar = "";
+    if (total > 0) {
+      const barW = Math.round(Math.min(46, 16 + 10 * Math.log10(1 + total)));
+      let a = Math.round((adds / total) * 100);
+      if (adds > 0 && dels > 0) a = Math.min(90, Math.max(10, a));
+      bar =
+        `<span class="ch-bar" style="width:${barW}px" title="+${adds} −${dels}">` +
+        (adds > 0 ? `<i class="a" style="width:${a}%"></i>` : "") +
+        (dels > 0 ? `<i class="d" style="width:${100 - a}%"></i>` : "") +
+        `</span>`;
+    }
+    return (
+      `<span class="ch-count" title="${s.files} file${s.files === 1 ? "" : "s"} changed · +${adds} −${dels}">` +
+      `<span class="codicon codicon-file"></span>${s.files}</span>` +
+      bar
+    );
+  }
+
+  private rowHtml(item: VirtualItem, gutterW: number): string {
+    const row = this.rows[item.index];
+    if (!row) {
+      return "";
+    }
+    const selected = row.sha === this.selectedSha;
+    const focusOn =
+      this.focusColor === undefined || row.color === this.focusColor;
+    const searching = this.searchQuery.trim().length > 0;
+    const isMatch = searching && this.matchSet.has(item.index);
+    const isWip = ZERO_SHA_RE.test(row.sha);
+    // A row is draggable only if it is in the rewritable chain AND the chain
+    // has somewhere to move it to. One reorderable commit is not reorderable.
+    const canReorder = !isWip && this.chainShas.length > 1 && this.chainIndex.has(row.sha);
+    const cls =
+      "row" +
+      (selected ? " selected" : "") +
+      (focusOn ? " focus-on" : "") +
+      (isWip ? " is-wip" : "") +
+      (canReorder ? " can-reorder" : "") +
+      (searching ? (isMatch ? " is-match" : " is-nomatch") : "");
+    const gutter = renderRowGutterSVG(
+      row,
+      {
+        colWidth: COL_WIDTH,
+        rowHeight: ROW_HEIGHT,
+        nodeRadius: NODE_RADIUS,
+        nodeInset: NODE_INSET,
+        palette: this.palette,
+        focusColor: this.focusColor,
+        maxColumn: this.maxDrawableColumn(gutterW),
+      },
+      gutterW,
+    );
+    const refs = row.refs.length ? this.refsHtml(row.refs) : "";
+    // The avatar sits ON the commit node (GitKraken-style), positioned at the
+    // node's lane x and ringed in the lane color. The WIP node gets a distinct
+    // pencil glyph instead of an author avatar.
+    // Byte-for-byte the same x the gutter node uses (laneCenterX includes the
+    // +0.5 crisp-align), so the avatar center can never drift off the node.
+    const cx = laneCenterX(row.column, COL_WIDTH, NODE_INSET);
+    const ring = this.palette[row.color % this.palette.length] ?? "#888";
+    const avatarUrl =
+      this.avatarFor(row.authorEmail) || gravatarUrl(row.authorEmail, 40);
+    // Deep lanes past the (capped) gutter width would clip the avatar to a
+    // half-circle — drop it there, exactly like the rail does.
+    const avatarFits = cx + AVATAR_SIZE / 2 <= gutterW;
+    const avatar = !avatarFits
+      ? ""
+      : isWip
+        ? `<span class="avatar wip-node" style="--gs-av-x:${cx}px;--gs-av-ring:${esc(ring)}" aria-hidden="true"><span class="codicon codicon-edit"></span></span>`
+        : avatarHtml(
+            row.author,
+            row.authorEmail,
+            cx,
+            ring,
+            avatarUrl,
+            this.loadedAvatars.has(avatarUrl),
+          );
+    const label = esc(
+      isWip
+        ? "Uncommitted changes"
+        : `${row.shortSha}: ${row.subject} — ${row.author}, ${relTime(row.authorDate)}`,
+    );
+    return (
+      // The id is what `aria-activedescendant` on the grid points at. Selection
+      // lived in a class alone, so a screen reader on this grid heard nothing
+      // as you arrowed through history — every row carries a good aria-label
+      // and none of them was ever announced.
+      `<div class="${cls}" role="row" id="gs-row-${row.sha}" data-sha="${row.sha}" ` +
+      (canReorder ? `title="Drag to reorder" ` : "") +
+      (this.chainShas.length > 0 && this.isFirstInert(row.sha)
+        ? `data-inert-why="${esc(stopReason(this.chainStop))}" `
+        : "") +
+      `aria-selected="${selected ? "true" : "false"}" aria-label="${label}" ` +
+      `style="transform:translateY(${item.start}px)">` +
+      `<div class="gutter">${gutter}${avatar}</div>` +
+      `<div class="content">` +
+        `<div class="refs">${refs}</div>` +
+        // data-text drives the same hover card the ref chips use, and it opens
+        // ONLY when the subject is actually clipped (see shouldOpen in
+        // refTip.ts). It replaces a native title for the same reason the chips
+        // dropped theirs: a second of holding still to read a message the row
+        // had to cut off is not a way to read commit messages.
+        `<div class="subject" data-text="${esc(row.subject)}">${esc(row.subject)}</div>` +
+      `</div>` +
+      `<div class="changes">${isWip ? "" : this.changesHtml(row.sha)}</div>` +
+      (isWip
+        ? `<div class="meta author"></div>`
+        : `<div class="meta author" data-author="${esc(this.authorTipData(row))}"` +
+          ` aria-label="${esc(row.author)} <${esc(row.authorEmail)}>">${esc(row.author)}</div>`) +
+      `<div class="meta date" title="${esc(absTime(row.authorDate))}">${isWip ? "now" : esc(dateLabel(row.authorDate))}</div>` +
+      shaCellHtml(row.sha, row.shortSha, isWip) +
+      `</div>`
+    );
+  }
+
+  private refsHtml(refs: WireRef[]): string {
+    const entries = foldRefs(refs);
+    const { shown, overflow: rest } = fitRefs(entries, this.refsBudget());
+    let out = "";
+    for (const entry of entries.slice(0, shown)) {
+      out += chipHtml(entry);
+    }
+    // The "+N" pill is UNCONDITIONAL whenever anything was dropped.
+    //
+    // It used to render only if it still fit (`used + 30 <= budget`), on the
+    // reasoning that a clipped pill looks worse than none. It does not: losing
+    // the pill loses the only evidence that the row has more refs, so a commit
+    // on both origin/HEAD and origin/main drew ONE chip and looked like a commit
+    // with one ref. Silently dropping data always beats looking slightly worse.
+    // The pill is flex:0 0 auto and the chips before it are flex:0 1 auto, so
+    // they ellipsize to make room for it rather than the other way round.
+    if (rest.length > 0) {
+      // `data-more` drives the hover card in refTip.ts. It replaced a native
+      // `title`, which took seconds of holding still to appear — on the one
+      // affordance that reveals what the column could not fit.
+      const hidden = rest.map((e) => ({
+        name: e.ref.name,
+        label: e.label,
+        fullName: e.ref.fullName,
+        kind: e.ref.kind,
+        remotes: e.remotes,
+        twins: e.twins,
+      }));
+      out +=
+        `<span class="chip chip-overflow" data-more="${esc(tipData(hidden))}"` +
+        ` aria-label="${esc(tipAriaLabel(hidden))}">` +
+        `+${rest.length}</span>`;
+    }
+    return out;
+  }
+
+  // ── Interaction ────────────────────────────────────────────────────────────
+
+  private rowShaFromEvent(e: Event): string | undefined {
+    const el = (e.target as HTMLElement | null)?.closest(
+      ".row",
+    ) as HTMLElement | null;
+    return el?.dataset.sha;
+  }
+
+  /** Set by a completed drag; consumed by the very next click. */
+  private suppressNextClick = false;
+
+  /** A row of the pinned "+N" card — the same navigation its chips perform. */
+  private onTipClick = (e: MouseEvent): void => {
+    const row = (e.target as HTMLElement | null)?.closest(
+      ".tip-row[data-ref]",
+    ) as HTMLElement | null;
+    if (!row) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const name = row.dataset.ref;
+    const sha = this.refTip.sha;
+    if (!name || !sha) return;
+    this.refTip.dismiss();
+    this.onAction({
+      type: "refClick",
+      sha,
+      name,
+      fullName: row.dataset.full ?? "",
+      kind: row.dataset.kind ?? "head",
+      remotes: (row.dataset.remotes ?? "").split(",").filter(Boolean),
+      twins: (row.dataset.twins ?? "").split(",").filter(Boolean),
+    });
+  };
+
+  private onClick = (e: MouseEvent): void => {
+    if (this.suppressNextClick) {
+      this.suppressNextClick = false;
+      e.preventDefault();
+      e.stopPropagation();
+      return;
+    }
+    const target = e.target as HTMLElement | null;
+    // A click on a copyable SHA cell copies the FULL sha and must NOT select or
+    // open the row. Only real sha cells carry [data-sha-cell] (the WIP row's sha
+    // cell is empty + non-interactive, so it falls through to normal selection).
+    const shaCell = target?.closest(".sha[data-sha-cell]") as HTMLElement | null;
+    if (shaCell) {
+      const full = (shaCell.closest(".row") as HTMLElement | null)?.dataset.sha;
+      if (full) {
+        e.preventDefault();
+        this.copySha(full, shaCell);
+      }
+      return;
+    }
+    // A ref chip is a LINK to that branch/tag, not a row selection — the
+    // labels used to be purely decorative, which made the graph's richest
+    // data its least useful.
+    // The "+N" pill is the only route to the refs it folded away, and it used
+    // to swallow the click and select the row instead — so those refs could be
+    // read on hover and opened never. Clicking it PINS the card open, which is
+    // also what makes them reachable without a steady hand.
+    const more = target?.closest(".chip-overflow") as HTMLElement | null;
+    if (more) {
+      e.preventDefault();
+      e.stopPropagation();
+      this.refTip.pin(more);
+      return;
+    }
+    const chip = target?.closest(".chip[data-ref]") as HTMLElement | null;
+    if (chip) {
+      // ⌥-click is the chip's filter menu (issue #30) — the same one a
+      // right-click opens, for pointers that have no right button.
+      if (e.altKey) {
+        e.preventDefault();
+        e.stopPropagation();
+        this.openChipMenu(chip, e.clientX, e.clientY);
+        return;
+      }
+      const row = chip.closest(".row") as HTMLElement | null;
+      const name = chip.dataset.ref;
+      if (name && row?.dataset.sha) {
+        e.preventDefault();
+        e.stopPropagation();
+        this.onAction({
+          type: "refClick",
+          sha: row.dataset.sha,
+          name,
+          fullName: chip.dataset.full ?? "",
+          kind: chip.dataset.kind ?? "head",
+          x: e.clientX,
+          y: e.clientY,
+          remotes: (chip.dataset.remotes ?? "").split(",").filter(Boolean),
+          twins: (chip.dataset.twins ?? "").split(",").filter(Boolean),
+        });
+        return;
+      }
+    }
+    const sha = this.rowShaFromEvent(e);
+    if (!sha) {
+      return;
+    }
+    // Re-clicking the selected row: select() would early-return and emit
+    // nothing, so a details dock the user had closed stayed closed no matter how
+    // many times they clicked the commit they wanted (issue #4). Say "show it"
+    // instead of forcing a re-select — a re-select would re-fetch the commit and
+    // tear down the diff tab the user has open.
+    if (this.selectedSha === sha) {
+      this.onAction({ type: "showDetails", sha });
+      return;
+    }
+    this.select(sha, false);
+  };
+
+  private onDblClick = (e: MouseEvent): void => {
+    const sha = this.rowShaFromEvent(e);
+    if (!sha) {
+      return;
+    }
+    // Double-click opens the in-graph actions popover (same as right-click), so
+    // every sidebar tab behaves the same — no native quick-pick.
+    e.preventDefault();
+    this.select(sha, false);
+    this.onAction({ type: "context", sha, x: e.clientX, y: e.clientY });
+  };
+
+  private onContextMenu = (e: MouseEvent): void => {
+    // A ref chip has a menu of its own: the branch-filter shortcuts (issue
+    // #30). The row's commit menu is one right-click away, beside the chip.
+    const chip = (e.target as HTMLElement | null)?.closest(".chip[data-ref]") as HTMLElement | null;
+    if (chip) {
+      e.preventDefault();
+      this.openChipMenu(chip, e.clientX, e.clientY);
+      return;
+    }
+    const sha = this.rowShaFromEvent(e);
+    if (!sha) {
+      return;
+    }
+    e.preventDefault();
+    this.select(sha, false);
+    this.onAction({ type: "context", sha, x: e.clientX, y: e.clientY });
+  };
+
+  private onPointerMove = (e: PointerEvent): void => {
+    // Lane focus is a deliberate affordance: only engage while the pointer is
+    // over the graph gutter (the rails). Casually moving across subjects/refs
+    // while reading no longer dims the list — that restlessness was the graph's
+    // biggest "busy" tell. Off the gutter → focus clears.
+    const inGutter = (e.target as HTMLElement | null)?.closest(".gutter");
+    const el = inGutter?.closest(".row") as HTMLElement | null;
+    const sha = el?.dataset.sha;
+    const idx = sha ? this.shaToIndex.get(sha) : undefined;
+    const next = idx !== undefined ? this.rows[idx]?.color : undefined;
+    if (next !== this.focusColor) {
+      this.focusColor = next;
+      this.scroller?.classList.toggle("focusing", next !== undefined);
+      this.renderRows();
+    }
+  };
+
+  // Delegated, capture-phase avatar load-failure handler. `error` events from
+  // <img> don't bubble, so we listen in the capture phase (Lit accepts an
+  // object listener with `capture`). A failed Gravatar image is hidden so the
+  // colored initials disc behind it shows through.
+  private onImgError = (e: Event): void => {
+    const t = e.target as HTMLElement | null;
+    if (t && t instanceof HTMLImageElement && t.classList.contains("av-img")) {
+      t.style.display = "none";
+    }
+  };
+  private onImgErrorOptions = {
+    handleEvent: (e: Event) => this.onImgError(e),
+    capture: true,
+  };
+
+  // Companion to onImgError: a delegated, capture-phase `load` handler (load,
+  // like error, does not bubble). The avatar <img> starts hidden (opacity:0);
+  // it is revealed ONLY here, once it has genuinely loaded. This makes the
+  // initials disc the always-visible base and the photo a pure enhancement —
+  // so a 404 / blocked host / offline fetch can never leave a blank avatar, and
+  // every recycled virtual row gets a fresh <img> that re-fires load from cache.
+  private onImgLoad = (e: Event): void => {
+    const t = e.target as HTMLElement | null;
+    if (t && t instanceof HTMLImageElement && t.classList.contains("av-img")) {
+      t.classList.add("is-loaded");
+      // Remember this URL succeeded so future recycled rows render it visible
+      // up front (see avatarHtml `preloaded`) — kills the scroll flicker.
+      const src = t.getAttribute("src");
+      if (src) {
+        this.loadedAvatars.add(src);
+      }
+    }
+  };
+  private onImgLoadOptions = {
+    handleEvent: (e: Event) => this.onImgLoad(e),
+    capture: true,
+  };
+
+  private onPointerLeave = (): void => {
+    this.refTip.hide();
+    this.authorTip.hide();
+    if (this.focusColor !== undefined) {
+      this.focusColor = undefined;
+      this.scroller?.classList.remove("focusing");
+      this.renderRows();
+    }
+  };
+
+  /**
+   * Begin a possible reorder drag.
+   *
+   * Only a chain row starts one, and only after the pointer has moved past a
+   * threshold — otherwise every click on a commit would arm a history rewrite,
+   * and a shaky hand would fire one. Selection still happens on click, because
+   * the drag never starts unless the pointer actually travels.
+   */
+  private onRowPointerDown = (e: PointerEvent): void => {
+    if (e.button !== 0 || this.chainShas.length < 2) return;
+    const target = e.composedPath()[0] as HTMLElement | null;
+    // Never hijack a control: the sha copy cell, a ref chip, the action menu.
+    if (target?.closest?.("[data-sha-cell],[data-more],.chip,button")) return;
+    const row = target?.closest?.(".row") as HTMLElement | null;
+    const sha = row?.dataset.sha;
+    if (!sha) return;
+    const from = this.chainIndex.get(sha);
+    if (from === undefined) return;
+
+    this.drag2 = {
+      sha, from, startY: e.clientY, gap: -1, started: false, pointerId: e.pointerId,
+    };
+    window.addEventListener("pointermove", this.onDragMove, true);
+    window.addEventListener("pointerup", this.onDragEnd, true);
+    window.addEventListener("pointercancel", this.onDragCancel, true);
+  };
+
+  /** How far the pointer must travel before a click becomes a drag. */
+  private static readonly DRAG_THRESHOLD = 6;
+
+  private onDragMove = (e: PointerEvent): void => {
+    const d = this.drag2;
+    if (!d || e.pointerId !== d.pointerId) return;
+    if (!d.started) {
+      if (Math.abs(e.clientY - d.startY) < CommitGraph.DRAG_THRESHOLD) return;
+      d.started = true;
+      this.classList.add("row-dragging");
+      const row = this.rowElementFor(d.sha);
+      row?.classList.add("is-dragged");
+    }
+    // Suppress text selection and native scrolling while dragging.
+    e.preventDefault();
+    const gap = this.gapAtY(e.clientY, d.from);
+    if (gap !== d.gap) {
+      d.gap = gap;
+      this.paintInsertLine(gap);
+    }
+  };
+
+  private onDragEnd = (e: PointerEvent): void => {
+    const d = this.drag2;
+    if (!d || e.pointerId !== d.pointerId) return;
+    const { from, gap, started } = d;
+    if (started) {
+      // A completed drag still delivers a click on pointerup. Without this the
+      // gesture that reordered history ALSO selects the row and opens the
+      // details dock — two things the user did not ask for, on top of one they
+      // did. Swallowed once, at capture, so nothing downstream sees it.
+      this.suppressNextClick = true;
+    }
+    this.endDrag();
+    if (!started || gap < 0 || !isRealMove(from, gap)) {
+      return;
+    }
+    const order = moveToGap(this.chainShas, from, gap);
+    this.onAction({ type: "reorder", order });
+  };
+
+  private onDragCancel = (e: PointerEvent): void => {
+    if (this.drag2 && e.pointerId === this.drag2.pointerId) this.endDrag();
+  };
+
+  private endDrag(): void {
+    const d = this.drag2;
+    this.drag2 = undefined;
+    window.removeEventListener("pointermove", this.onDragMove, true);
+    window.removeEventListener("pointerup", this.onDragEnd, true);
+    window.removeEventListener("pointercancel", this.onDragCancel, true);
+    this.classList.remove("row-dragging");
+    if (d) this.rowElementFor(d.sha)?.classList.remove("is-dragged");
+    this.paintInsertLine(-1);
+  }
+
+  /**
+   * Is this the first row the chain does NOT reach?
+   *
+   * That one row carries the explanation — "already pushed", "stops at a merge"
+   * — because it is the boundary the user is pushing against. Repeating it on
+   * every row below would be noise.
+   */
+  private isFirstInert(sha: string): boolean {
+    if (this.chainIndex.has(sha)) return false;
+    const oldest = this.chainShas[this.chainShas.length - 1];
+    if (oldest === undefined) return false;
+    const i = this.rows.findIndex((r) => r.sha === oldest);
+    return i >= 0 && this.rows[i + 1]?.sha === sha;
+  }
+
+  private rowElementFor(sha: string): HTMLElement | null {
+    return (
+      (this.renderRoot.querySelector(
+        `.row[data-sha="${CSS.escape(sha)}"]`,
+      ) as HTMLElement | null) ?? null
+    );
+  }
+
+  /**
+   * The legal gap nearest the pointer, or -1 when there is none.
+   *
+   * Gaps are the boundaries BETWEEN chain rows, and only chain rows count —
+   * this is what makes a drag past a commit belonging to another branch snap
+   * over it rather than land in it. The nearest legal gap wins, so the line
+   * never sits somewhere the drop would be refused.
+   */
+  private gapAtY(clientY: number, from: number): number {
+    const legal = legalGaps(this.chainShas.length, from);
+    if (legal.length === 0) return -1;
+    let best = -1;
+    let bestDist = Infinity;
+    for (const gap of legal) {
+      const y = this.gapY(gap);
+      if (y === undefined) continue;
+      const dist = Math.abs(clientY - y);
+      if (dist < bestDist) {
+        bestDist = dist;
+        best = gap;
+      }
+    }
+    return best;
+  }
+
+  /** Viewport y of a gap: the top of the row below it, or the bottom of the last. */
+  private gapY(gap: number): number | undefined {
+    if (gap < this.chainShas.length) {
+      const el = this.rowElementFor(this.chainShas[gap]);
+      return el ? el.getBoundingClientRect().top : undefined;
+    }
+    const last = this.rowElementFor(this.chainShas[this.chainShas.length - 1]);
+    return last ? last.getBoundingClientRect().bottom : undefined;
+  }
+
+  private paintInsertLine(gap: number): void {
+    const line = this.renderRoot.querySelector(".insert-line") as HTMLElement | null;
+    if (!line) return;
+    const scroller = this.scroller;
+    const y = gap < 0 ? undefined : this.gapY(gap);
+    if (y === undefined || !scroller) {
+      line.hidden = true;
+      return;
+    }
+    // Positioned inside the scroller, so it must be expressed in its scrolled
+    // coordinate space rather than the viewport's.
+    const box = scroller.getBoundingClientRect();
+    line.style.top = `${Math.round(y - box.top + scroller.scrollTop)}px`;
+    line.hidden = false;
+  }
+
+  private onPointerOver = (e: PointerEvent): void => {
+    this.refTip.handleOver(e);
+    this.authorTip.handleOver(e);
+  };
+
+  private onPointerOut = (e: PointerEvent): void => {
+    this.refTip.handleOut(e);
+    this.authorTip.handleOut(e);
+  };
+
+  private onKeyDown = (e: KeyboardEvent): void => {
+    // A pinned "+N" card is the innermost thing on screen, so it takes Escape
+    // first — before the row selection or the host's details dock.
+    if (e.key === "Escape" && this.refTip.isPinned) {
+      e.preventDefault();
+      e.stopPropagation();
+      this.refTip.dismiss();
+      return;
+    }
+    if (this.rows.length === 0) {
+      return;
+    }
+    const current =
+      this.selectedSha !== undefined
+        ? this.shaToIndex.get(this.selectedSha)
+        : undefined;
+    // j / k alongside the arrows, the way every other list in this app answers
+    // and the way the app's own shortcut sheet has been promising ("↑ ↓ or
+    // j k — Move between rows"). This was the one list where the documented
+    // keys did nothing. Guarded on modifiers so ⌘J and friends still reach the
+    // window, and skipped while a text field has focus — the search box sits
+    // inside this component.
+    const typing =
+      e.target instanceof HTMLElement &&
+      (e.target.tagName === "INPUT" ||
+        e.target.tagName === "TEXTAREA" ||
+        e.target.isContentEditable);
+    const plain = !e.metaKey && !e.ctrlKey && !e.altKey;
+    const down = e.key === "ArrowDown" || (plain && !typing && e.key === "j");
+    const up = e.key === "ArrowUp" || (plain && !typing && e.key === "k");
+    if (down || up) {
+      e.preventDefault();
+      const delta = down ? 1 : -1;
+      const base = current ?? (delta > 0 ? -1 : this.rows.length);
+      const next = Math.max(0, Math.min(this.rows.length - 1, base + delta));
+      this.select(this.rows[next].sha, true);
+    } else if (e.key === "Home") {
+      e.preventDefault();
+      this.select(this.rows[0].sha, true);
+    } else if (e.key === "End") {
+      e.preventDefault();
+      this.select(this.rows[this.rows.length - 1].sha, true);
+    } else if (e.key === "Enter" && this.selectedSha) {
+      e.preventDefault();
+      this.onAction({ type: "open", sha: this.selectedSha });
+    }
+  };
+
+  private select(sha: string, scrollIntoView: boolean): void {
+    if (this.selectedSha === sha && !scrollIntoView) {
+      return;
+    }
+    // `selectedSha` is reactive, so assigning it already schedules a render —
+    // and this method then painted the window a second time by hand. Every
+    // keypress and every click therefore rebuilt the whole visible window
+    // TWICE: ten ArrowDowns over an 800-row history built 720 rows and parsed
+    // 1.45 million characters of HTML to move one highlight.
+    //
+    // The explicit paint is kept for the branch Lit will not cover — a
+    // re-select of the SAME sha, which changes no reactive property and so
+    // schedules nothing, but is still asked to hide the ref and author
+    // tooltips. That branch is unchanged, byte for byte.
+    const changed = this.selectedSha !== sha;
+    this.selectedSha = sha;
+    this.onAction({ type: "select", sha });
+    if (scrollIntoView) {
+      const idx = this.shaToIndex.get(sha);
+      if (idx !== undefined && this.virtualizer) {
+        this.virtualizer.scrollToIndex(idx, { align: "auto" });
+      }
+    }
+    if (!changed) {
+      this.renderRows();
+    }
+  }
+
+  /**
+   * Public: select + center on a sha (e.g. the host revealing a commit).
+   *
+   * Returns whether the row was actually found. The graph only holds the pages
+   * it has loaded, so a commit further back than that — which is most of the
+   * history in any real repository — cannot be revealed at all, and the caller
+   * needs to know rather than assume it worked.
+   */
+  reveal(sha: string): boolean {
+    const idx = this.shaToIndex.get(sha);
+    if (idx === undefined) {
+      return false;
+    }
+    this.selectedSha = sha;
+    this.virtualizer?.scrollToIndex(idx, { align: "center" });
+    this.renderRows();
+    return true;
+  }
+
+  // ── Search (highlight + navigate matches across loaded rows) ───────────────
+
+  private onSearchInput = (e: Event): void => {
+    this.searchQuery = (e.target as HTMLInputElement).value;
+    this.computeMatches();
+    this.renderRows();
+  };
+
+  private onSearchKey = (e: KeyboardEvent): void => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      this.gotoMatch(e.shiftKey ? -1 : 1);
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      // Keep this Escape inside the search box: without stopPropagation the
+      // composed event also reaches the host's document-level Escape handler,
+      // which would collapse the commit-details dock at the same time.
+      e.stopPropagation();
+      this.clearSearch();
+    }
+  };
+
+  private clearSearch(): void {
+    this.searchQuery = "";
+    this.computeMatches();
+    this.renderRows();
+  }
+
+  /**
+   * Re-scan for a NEW query or scope: highlight and count, but do not travel.
+   *
+   * It used to select the first match and scroll to it — on every keystroke.
+   * Selecting emits `{type: "select"}`, and the host answers by re-fetching the
+   * commit and replacing the details pane, so typing three characters into the
+   * search box threw away the diff you were reading, moved the selection three
+   * times and made three requests, before you had finished the word.
+   *
+   * `rescanMatches` right below already spells out the principle for appended
+   * pages — "that resets to the first match and scrolls there, which on every
+   * appended page would yank the view out from under someone reading". A
+   * keystroke is the same event, more often. Enter travels; typing paints.
+   */
+  private computeMatches(): void {
+    this.scanMatches();
+    // -1, not 0: nothing is "the current match" until the reader asks for one,
+    // and `gotoMatch` maps -1 to the first (or last, going backwards).
+    this.matchIdx = -1;
+  }
+
+  /**
+   * Re-scan the loaded rows for the current query, keeping the user's place.
+   *
+   * The graph pages, so the rows a search ran over are only the ones loaded at
+   * the time it was typed. Nothing re-scanned on append: the match counter
+   * froze at its first-page value, and every matching commit on every later
+   * page rendered as a NON-match — dimmed, uncounted, and unreachable with
+   * next/previous. On a repo of any size that is most of the answer, silently
+   * missing, while the counter states a total as fact.
+   *
+   * Deliberately not `computeMatches`: that resets to the first match and
+   * scrolls there, which on every appended page would yank the view out from
+   * under someone reading. The focused match is re-found by SHA instead, so
+   * "next" continues from where they actually are.
+   */
+  private rescanMatches(): void {
+    const focused = this.searchMatches[this.matchIdx];
+    const focusedSha = focused !== undefined ? this.rows[focused]?.sha : undefined;
+    this.scanMatches();
+    if (!this.searchMatches.length) {
+      this.matchIdx = -1;
+      return;
+    }
+    const again =
+      focusedSha === undefined
+        ? -1
+        : this.searchMatches.findIndex((i) => this.rows[i]?.sha === focusedSha);
+    this.matchIdx = again >= 0 ? again : 0;
+  }
+
+  /** The scan itself: rebuild `searchMatches`/`matchSet`, touching nothing else. */
+  private scanMatches(): void {
+    this.searchMatches = [];
+    this.matchSet.clear();
+    this.matchIdx = -1;
+    const q = this.searchQuery.trim().toLowerCase();
+    if (!q) return;
+    const scope = this.searchScope;
+    for (let i = 0; i < this.rows.length; i++) {
+      if (rowMatches(this.rows[i], q, scope)) {
+        this.searchMatches.push(i);
+        this.matchSet.add(i);
+      }
+    }
+  }
+
+  private gotoMatch(delta: number): void {
+    const n = this.searchMatches.length;
+    if (!n) {
+      return;
+    }
+    // From "no match chosen yet", forward means the first and backward the
+    // last — rather than the modular arithmetic's second-to-last.
+    this.matchIdx =
+      this.matchIdx < 0 ? (delta > 0 ? 0 : n - 1) : (this.matchIdx + delta + n) % n;
+    this.scrollToMatch();
+  }
+
+  private scrollToMatch(): void {
+    const idx = this.searchMatches[this.matchIdx];
+    const row = this.rows[idx];
+    if (row) {
+      this.select(row.sha, true);
+    }
+  }
+
+  /**
+   * Current branch name: the ref list's current branch, else the HEAD row's
+   * currentHead chip.
+   *
+   * The list first. Under a filter that leaves the current branch out (issue
+   * #30) no row carries its chip — an attached HEAD is walked only when
+   * ticked — and a header read off the rows alone said "Detached HEAD" over a
+   * HEAD that was on main. And the list's full name reads "release" where the
+   * chip says git's "heads/release" beside a tag of that name.
+   */
+  private currentBranchName(): string {
+    const cur = this.refList.find((r) => r.kind === "head" && r.isCurrent);
+    if (cur) return refDisplayName(cur.fullName);
+    for (const row of this.rows) {
+      const ref = row.refs.find((r) => r.kind === "currentHead");
+      if (ref) {
+        return ref.fullName ? refDisplayName(ref.fullName) : ref.name;
+      }
+    }
+    return "";
+  }
+
+  private headerHtml() {
+    const branch = this.currentBranchName();
+    const n = this.rows.length;
+    const count =
+      n === 0
+        ? ""
+        : `${n.toLocaleString()}${this.hasMore ? "+" : ""} commit${n === 1 ? "" : "s"}`;
+    const q = this.searchQuery.trim();
+    // The search only sees the rows that are LOADED. Saying "No results" while
+    // more history is unread states as fact something we have not looked at —
+    // and "3/3" implies the search is finished when it is not. The "+" is the
+    // same honesty the commit count beside it already uses.
+    const results = q
+      ? this.searchMatches.length
+        ? // Before you travel to one, `matchIdx` is -1 — there is no "current"
+          // match, because typing a query no longer moves you. Rendering that
+          // as `0/12` reads as a position, and the position it reads as is one
+          // that cannot exist: every other counter in the app is 1-based, so
+          // "0 of 12" says the search found nothing while listing twelve.
+          this.matchIdx < 0
+          ? `${this.searchMatches.length.toLocaleString()}${this.hasMore ? "+" : ""} match${this.searchMatches.length === 1 ? "" : "es"}`
+          : `${this.matchIdx + 1}/${this.searchMatches.length}${this.hasMore ? "+" : ""}`
+        : this.hasMore
+          ? `No results in ${n.toLocaleString()} loaded`
+          : "No results"
+      : "";
+    return html`<div class="gheader">
+      <span
+        class="gh-branch ${branch ? "" : "is-detached"}"
+        title=${branch
+          ? `${branch} (current branch)`
+          : this.head
+            ? `Detached HEAD at ${this.head.slice(0, 8)} — commits here belong to no branch`
+            : "Detached HEAD"}
+      >
+        <span
+          class="codicon codicon-${branch ? "git-branch" : "warning"}"
+          aria-hidden="true"
+        ></span>
+        <span class="nm"
+          >${branch || (this.head ? this.head.slice(0, 8) : "no commits yet")}</span
+        >
+      </span>
+      ${count ? html`<span class="gh-count">${count}</span>` : nothing}
+      <span class="gh-spacer"></span>
+      ${this.branchesControlHtml()}
+      <span class="gh-search ${q ? "active" : ""}">
+        <span class="codicon codicon-search" aria-hidden="true"></span>
+        ${this.scopeControlHtml()}
+        <input
+          class="gh-input"
+          type="text"
+          placeholder=${this.searchPlaceholder()}
+          aria-label="Search commits"
+          .value=${this.searchQuery}
+          @input=${this.onSearchInput}
+          @keydown=${this.onSearchKey}
+        />
+        ${q
+          ? html`<span class="gh-results ${this.searchMatches.length ? "" : "none"}"
+                >${results}</span
+              >
+              <button
+                class="gh-iconbtn"
+                title="Previous match (Shift+Enter)"
+                @click=${() => this.gotoMatch(-1)}
+              >
+                <span class="codicon codicon-chevron-up"></span></button
+              ><button
+                class="gh-iconbtn"
+                title="Next match (Enter)"
+                @click=${() => this.gotoMatch(1)}
+              >
+                <span class="codicon codicon-chevron-down"></span></button
+              ><button
+                class="gh-iconbtn"
+                title="Clear search (Esc)"
+                @click=${() => this.clearSearch()}
+              >
+                <span class="codicon codicon-close"></span>
+              </button>`
+          : nothing}
+      </span>
+      ${this.columnsControlHtml()}
+      <button
+        class="gh-iconbtn gh-refresh${this.status === "loading" && this.rows.length ? " is-refreshing" : ""}"
+        title=${this.status === "loading" && this.rows.length ? "Refreshing…" : "Refresh"}
+        ?disabled=${this.status === "loading" && this.rows.length > 0}
+        @click=${() => this.onAction({ type: "refresh" })}
+      >
+        <span class="codicon codicon-refresh"></span>
+      </button>
+    </div>`;
+  }
+
+  private searchPlaceholder(): string {
+    switch (this.searchScope) {
+      case "message": return "Search messages…";
+      case "author": return "Search authors…";
+      case "sha": return "Search SHA…";
+      case "refs": return "Search branches & tags…";
+      default: return "Search commits, authors, refs…";
+    }
+  }
+
+  /** The scope segmented-button + its dropdown, sitting inside the search box.
+      Compact by default (just a filter glyph); when a non-"All" scope is active
+      it shows the scope label so the constraint is always visible. */
+  private scopeControlHtml() {
+    const cur = SEARCH_SCOPES.find((s) => s.id === this.searchScope) ?? SEARCH_SCOPES[0];
+    const scoped = this.searchScope !== "all";
+    return html`<span class="gh-anchor">
+      <button
+        class="gh-scope ${scoped ? "scoped" : ""}"
+        type="button"
+        title=${`Search scope: ${cur.label}`}
+        aria-label=${`Search scope: ${cur.label}`}
+        aria-haspopup="menu"
+        aria-expanded=${this.scopeOpen ? "true" : "false"}
+        @click=${this.toggleScopePopover}
+        @keydown=${this.onPopoverKeyDown}
+      >
+        <span class="codicon codicon-filter" aria-hidden="true"></span>
+        ${scoped ? html`<span>${cur.label}</span>` : nothing}
+        <span class="codicon codicon-chevron-down" aria-hidden="true"></span>
+      </button>
+      ${this.scopeOpen
+        ? html`<div
+            class="gh-pop gh-scope-pop"
+            role="menu"
+            aria-label="Search scope"
+            @keydown=${this.onPopoverKeyDown}
+          >
+            <div class="gh-pop-title">Search in</div>
+            ${SEARCH_SCOPES.map(
+              (s) => html`<button
+                class="gh-menuitem"
+                role="menuitemradio"
+                aria-checked=${this.searchScope === s.id ? "true" : "false"}
+                @click=${() => this.setSearchScope(s.id)}
+              >
+                <span class="codicon codicon-check" aria-hidden="true"></span>
+                <span class="lbl">${s.label}</span>
+              </button>`,
+            )}
+          </div>`
+        : nothing}
+    </span>`;
+  }
+
+  /**
+   * The Branches trigger + picker (issue #30). The trigger says what the graph
+   * is built around ("All branches" / "main, feature/x" / "3 branches"); the
+   * popover is the shared shell with the four presets, a filter box and the
+   * refs grouped Local / Remote / Tags, the current branch pinned first.
+   */
+  private branchesControlHtml() {
+    const refs = this.refList;
+    const label = refFilterLabel(this.refFilter, refs, this.refPreset);
+    const filtered = this.refFilter !== null;
+    return html`<span class="gh-anchor">
+      <button
+        class="gh-scope gh-branches ${filtered ? "scoped" : ""}"
+        type="button"
+        title=${`Branches: ${label}`}
+        aria-label=${`Filter branches: ${label}`}
+        aria-haspopup="menu"
+        aria-expanded=${this.branchesOpen ? "true" : "false"}
+        @click=${this.toggleBranchesPopover}
+        @keydown=${this.onPopoverKeyDown}
+      >
+        <span class="codicon codicon-git-branch" aria-hidden="true"></span>
+        <span class="lbl">${label}</span>
+        <span class="codicon codicon-chevron-down" aria-hidden="true"></span>
+      </button>
+      ${this.branchesOpen ? this.branchesPopHtml() : nothing}
+    </span>`;
+  }
+
+  private branchesPopHtml() {
+    const refs = this.refList;
+    const active = activePreset(this.refFilter, this.refPreset);
+    const selected = new Set(this.refFilter ?? []);
+    const groups = groupRefs(refs, this.branchQuery);
+    const kindIcon = (k: GraphRefEntry["kind"]) =>
+      k === "tag" ? "tag" : k === "remoteHead" ? "cloud" : "git-branch";
+    const hint = refFilterHint(this.refFilter, refs, this.refPreset);
+    return html`<div
+      class="gh-pop gh-branches-pop"
+      role="menu"
+      aria-label="Branches"
+      @keydown=${this.onPopoverKeyDown}
+    >
+      <div class="gh-pop-title">Show branches</div>
+      <div class="gh-presets">
+        ${REF_PRESETS.map((p) => {
+          const why = presetUnavailable(p.id, refs);
+          return html`<button
+            class="gh-preset ${active === p.id ? "active" : ""}"
+            type="button"
+            data-preset=${p.id}
+            ?disabled=${!!why}
+            title=${why || p.label}
+            aria-pressed=${active === p.id ? "true" : "false"}
+            @click=${() => {
+              const f = presetFilter(p.id, refs);
+              if (f !== undefined) this.applyRefFilter(f, p.id);
+            }}
+          >
+            ${p.label}
+          </button>`;
+        })}
+      </div>
+      <label class="gh-pop-filter">
+        <span class="codicon codicon-search" aria-hidden="true"></span>
+        <input
+          type="text"
+          placeholder="Filter branches…"
+          aria-label="Filter the branch list"
+          .value=${this.branchQuery}
+          @input=${this.onBranchQueryInput}
+        />
+      </label>
+      <div class="gh-pop-list">
+        ${groups.map(
+          (g) => html`<div class="gh-pop-title">${g.label}</div>
+            ${g.refs.map(
+              (r) => html`<button
+                class="gh-menuitem"
+                role="menuitemcheckbox"
+                aria-checked=${selected.has(r.fullName) ? "true" : "false"}
+                data-ref=${r.fullName}
+                title=${r.fullName}
+                @click=${() => this.applyRefFilter(toggleRef(this.refFilter, r.fullName))}
+              >
+                <span class="codicon codicon-check" aria-hidden="true"></span>
+                <span class="codicon codicon-${kindIcon(r.kind)} gh-ref-kind" aria-hidden="true"></span>
+                <span class="lbl gh-ref-name">${refDisplayName(r.fullName)}</span>
+                ${r.isCurrent ? html`<span class="gh-ref-cur">current</span>` : nothing}
+              </button>`,
+            )}
+            ${g.hidden
+              ? html`<div class="gh-pop-hint">${g.hidden} more — type to narrow</div>`
+              : nothing}`,
+        )}
+        ${groups.length === 0 && refs.length
+          ? html`<div class="gh-pop-hint">No branches match</div>`
+          : nothing}
+      </div>
+      <div class="gh-pop-sep"></div>
+      <div class="gh-pop-hint">${hint}</div>
+    </div>`;
+  }
+
+  /** A ref chip's menu: show only it, add it to / remove it from the filter,
+   *  and check it out. */
+  private renderChipMenu() {
+    const m = this.chipMenu;
+    if (!m) return nothing;
+    const W = CTX_MENU_W;
+    const H = 34 + 5 * 28;
+    const left = Math.max(6, Math.min(m.x, window.innerWidth - W - 6));
+    const top = Math.max(6, Math.min(m.y, window.innerHeight - H - 6));
+    // A chip the ref list has no entry for resolves to nothing (chipRefs):
+    // its menu says so and acts on nothing, rather than guess a full name.
+    const known = m.refs.length > 0;
+    const inFilter = known && !!this.refFilter && m.refs.every((r) => this.refFilter!.includes(r));
+    const isOnly = known && sameRefFilter(m.refs, this.refFilter);
+    const pick = (refs: GraphRefFilter) => {
+      this.chipMenu = null;
+      this.applyRefFilter(refs);
+    };
+    // The ref's own name, not git's disambiguated short form ("heads/x"
+    // beside a tag "x") — the chip's full name, shorn, even when the list
+    // does not know it.
+    const title = refDisplayName(known ? m.refs[0] : m.fullName || m.name);
+    const checkout = known ? chipCheckout({ ...m, name: title }) : undefined;
+    return html`<div
+      class="gh-pop gh-ctx gh-chip-menu"
+      role="menu"
+      tabindex="-1"
+      aria-label=${`Filter by ${title}`}
+      style="left:${Math.round(left)}px;top:${Math.round(top)}px"
+      @keydown=${this.onPopoverKeyDown}
+    >
+      <div class="gh-pop-title">${title}</div>
+      <button
+        class="gh-menuitem"
+        role="menuitem"
+        data-chip-action="only"
+        ?disabled=${isOnly || !known}
+        @click=${() => pick(m.refs)}
+      >
+        <span class="codicon codicon-filter" aria-hidden="true"></span>
+        <span class="lbl">${m.kind === "tag" ? "Show only this tag" : "Show only this branch"}</span>
+      </button>
+      ${this.refFilter
+        ? html`<button
+              class="gh-menuitem"
+              role="menuitem"
+              data-chip-action=${inFilter ? "remove" : "add"}
+              ?disabled=${!known}
+              @click=${() =>
+                pick(inFilter ? removeRefs(this.refFilter, m.refs) : addRefs(this.refFilter, m.refs))}
+            >
+              <span class="codicon codicon-${inFilter ? "dash" : "add"}" aria-hidden="true"></span>
+              <span class="lbl">${inFilter ? "Remove from filter" : "Add to filter"}</span>
+            </button>
+            <div class="gh-pop-sep"></div>
+            <button
+              class="gh-menuitem"
+              role="menuitem"
+              data-chip-action="all"
+              @click=${() => pick(null)}
+            >
+              <span class="codicon codicon-list-flat" aria-hidden="true"></span>
+              <span class="lbl">Show all branches</span>
+            </button>`
+        : nothing}
+      ${checkout
+        ? html`<div class="gh-pop-sep"></div>
+            <button
+              class="gh-menuitem"
+              role="menuitem"
+              data-chip-action="checkout"
+              @click=${() => {
+                this.chipMenu = null;
+                // refs[0] is the chip's own ref, resolved through the list; the
+                // folded remote twins follow it.
+                this.onAction({ type: "checkoutRef", sha: m.sha, name: m.name, kind: m.kind, fullName: m.refs[0] });
+              }}
+            >
+              <span class="codicon codicon-${checkout.icon}" aria-hidden="true"></span>
+              <span class="lbl">${checkout.label}</span>
+            </button>`
+        : nothing}
+      ${known
+        ? nothing
+        : html`<div class="gh-pop-sep"></div>
+            <div class="gh-pop-hint">Not in the branch list yet — refresh the graph</div>`}
+    </div>`;
+  }
+
+  /** The "Columns" button + show/hide popover. */
+  private columnsControlHtml() {
+    const hiddenCount = this.hiddenCols.size;
+    return html`<span class="gh-anchor">
+      <button
+        class="gh-iconbtn gh-columns-btn"
+        type="button"
+        title="Columns"
+        aria-label="Show or hide columns"
+        aria-haspopup="menu"
+        aria-expanded=${this.columnsOpen ? "true" : "false"}
+        @click=${this.toggleColumnsPopover}
+        @keydown=${this.onPopoverKeyDown}
+      >
+        <span class="codicon codicon-list-flat" aria-hidden="true"></span>
+      </button>
+      ${this.columnsOpen
+        ? html`<div
+            class="gh-pop"
+            role="menu"
+            aria-label="Toggle columns"
+            @keydown=${this.onPopoverKeyDown}
+          >
+            <div class="gh-pop-title">Columns</div>
+            ${COLUMN_SPECS.filter((s) => s.hideable !== false).map((spec) => {
+              const visible = !this.hiddenCols.has(spec.id);
+              return html`<button
+                class="gh-menuitem"
+                role="menuitemcheckbox"
+                aria-checked=${visible ? "true" : "false"}
+                @click=${() => this.toggleColumn(spec.id)}
+              >
+                <span class="codicon codicon-check" aria-hidden="true"></span>
+                <span class="lbl">${spec.label}</span>
+              </button>`;
+            })}
+            <div class="gh-pop-sep"></div>
+            <button
+              class="gh-menuitem"
+              role="menuitem"
+              title="Restore every column to its default width"
+              @click=${this.resetAllColumnWidths}
+            >
+              <span class="codicon codicon-discard" aria-hidden="true"></span>
+              <span class="lbl">Reset column widths</span>
+            </button>
+            <div class="gh-pop-sep"></div>
+            <div class="gh-pop-hint">
+              ${hiddenCount === 0
+                ? "Graph & message are always shown"
+                : `${hiddenCount} hidden · drag header edges to resize`}
+            </div>
+          </div>`
+        : nothing}
+    </span>`;
+  }
+
+  render() {
+    const header = this.headerHtml();
+    if (this.status === "error") {
+      return html`${header}<div class="placeholder">
+          <span class="ph-icon codicon codicon-warning"></span>
+          <div class="ph-title">Couldn't load the history</div>
+          ${this.errorMessage
+            ? html`<div class="ph-detail">${this.errorMessage}</div>`
+            : nothing}
+          <button class="ph-retry" @click=${() => this.onAction({ type: "refresh" })}>
+            <span class="codicon codicon-refresh"></span> Retry
+          </button>
+        </div>${nothing}`;
+    }
+    if (this.status === "empty") {
+      return html`${header}<div class="placeholder">
+          <span class="ph-icon codicon codicon-git-commit"></span>
+          <div class="ph-title">No commits yet</div>
+          <div class="ph-detail">Make your first commit and the history will appear here.</div>
+        </div>${nothing}`;
+    }
+    if (this.status === "loading" && this.rows.length === 0) {
+      return html`${header}<div class="placeholder">
+          <div class="spinner"></div>
+          <div>Loading history…</div>
+        </div>${nothing}`;
+    }
+    return html`${header}${this.colHeadHtml()}<div
+        class="scroller"
+        tabindex="0"
+        role="grid"
+        aria-label="Commit graph"
+        aria-rowcount=${this.rows.length}
+        aria-activedescendant=${this.selectedSha ? `gs-row-${this.selectedSha}` : nothing}
+        @click=${this.onClick}
+        @dblclick=${this.onDblClick}
+        @contextmenu=${this.onContextMenu}
+        @keydown=${this.onKeyDown}
+        @pointerdown=${this.onRowPointerDown}
+        @pointermove=${this.onPointerMove}
+        @pointerleave=${this.onPointerLeave}
+        @pointerover=${this.onPointerOver}
+        @pointerout=${this.onPointerOut}
+        @error=${this.onImgErrorOptions}
+        @load=${this.onImgLoadOptions}
+      >
+        <div class="sizer"></div>
+        <div class="insert-line" hidden></div>
+      </div>
+      <div class="reftip" role="tooltip" hidden @click=${this.onTipClick}></div>
+      <div class="authortip reftip" role="tooltip" hidden></div>${this.commitMenu ? this.renderCommitMenu() : nothing}${this.chipMenu ? this.renderChipMenu() : nothing}`;
+  }
+
+  /** The in-graph commit actions popover (fixed at the cursor, clamped). */
+  private renderCommitMenu() {
+    const m = this.commitMenu;
+    if (!m) {
+      return nothing;
+    }
+    // Clamp to the viewport. W is the shell's CSS max-width, not a guess:
+    // a host-built "Checkout origin/<long name>" item made the menu wider
+    // than the 220 assumed here, and it ran off the pane.
+    const W = CTX_MENU_W;
+    const H = 34 + m.items.length * 28;
+    const left = Math.max(6, Math.min(m.x, window.innerWidth - W - 6));
+    const top = Math.max(6, Math.min(m.y, window.innerHeight - H - 6));
+    const pick = (id: string) => {
+      const sha = m.sha;
+      this.commitMenu = null;
+      if (id) {
+        this.onAction({ type: "menuAction", sha, id });
+      }
+    };
+    return html`<div
+      class="gh-pop gh-ctx"
+      role="menu"
+      style="left:${Math.round(left)}px;top:${Math.round(top)}px"
+      @keydown=${(e: KeyboardEvent) => {
+        if (e.key === "Escape") {
+          e.preventDefault();
+          e.stopPropagation();
+          this.commitMenu = null;
+        }
+      }}
+    >
+      <div class="gh-pop-title">${m.title}</div>
+      ${m.items.map((it) =>
+        it.sep
+          ? html`<div class="gh-pop-sep"></div>`
+          : html`<button
+              class="gh-menuitem${it.danger ? " danger" : ""}"
+              role="menuitem"
+              @click=${() => pick(it.id)}
+            >
+              ${it.icon
+                ? html`<span class="codicon codicon-${it.icon}"></span>`
+                : nothing}
+              <span class="lbl">${it.label}</span>
+            </button>`,
+      )}
+    </div>`;
+  }
+
+  /** GitLens-style column headers, aligned to the row grid, with resize grips.
+      Each resizable header carries a grip on its right edge; the flexible
+      subject + gutter columns have none. The refs grip resizes the Branch/Tag
+      track that sits to the LEFT of the subject. */
+  private colHeadHtml() {
+    return html`<div class="colhead">
+      <span class="ch-graph"
+        ><span class="ch-label">Graph</span>${this.resizeHandle("graph")}</span
+      >
+      <span class="ch-refs"
+        ><span class="ch-label">Branch / Tag</span>${this.resizeHandle("refs")}</span
+      >
+      <span class="ch-subject"
+        ><span class="ch-label">Commit message</span>${this.resizeHandle(
+          "changes",
+          true,
+        )}</span
+      >
+      <span class="ch-changes"
+        ><span class="ch-label">Changes</span>${this.resizeHandle("changes")}</span
+      >
+      <span class="ch-author"
+        ><span class="ch-label">Author</span>${this.resizeHandle("author")}</span
+      >
+      <span class="ch-date"
+        ><span class="ch-label">Date</span>${this.resizeHandle("date")}</span
+      >
+      <span class="ch-sha"><span class="ch-label">SHA</span></span>
+    </div>`;
+  }
+
+  /** A drag handle pinned to the right edge of a resizable column header.
+      `invert = true` places the SAME divider on the hosting header's right
+      edge but resizes the NAMED column inversely — used for the Commit
+      message / Changes boundary (dragging right widens the message). */
+  private resizeHandle(id: ColumnSpec["id"], invert = false) {
+    const spec = COLUMN_BY_ID.get(id)!;
+    const w = this.colWidths[id] ?? this.defaultColWidth(spec);
+    return html`<span
+      class="col-resize"
+      data-col=${id}
+      data-invert=${invert ? "1" : "0"}
+      role="separator"
+      aria-orientation="vertical"
+      aria-label=${invert
+        ? "Resize Commit message / Changes divider"
+        : `Resize ${spec.label} column`}
+      /* A divider resizes the column to its LEFT, which is the table
+         convention but is not self-evident when the label you are standing
+         next to is the one on the RIGHT ("I dragged Author and Changes
+         moved"). Name the column out loud. */
+      title=${invert
+        ? "Drag to resize Commit message / Changes"
+        : `Drag to resize ${spec.label}  ·  double-click to reset`}
+      aria-valuenow=${Math.round(w)}
+      aria-valuemin=${spec.min}
+      aria-valuemax=${spec.max}
+      tabindex="0"
+      @pointerdown=${this.onResizeHandlePointerDown}
+      @dblclick=${this.onResizeHandleDblClick}
+      @keydown=${this.onResizeHandleKey}
+    ></span>`;
+  }
+}
+
+// ── Small pure helpers (self-contained so the bundle has no extra deps) ───────
+
+// Ref glyphs: the real VS Code codicon font (registered document-wide via the
+// page stylesheet's @font-face; class rules live in codiconStyles).
+const TAG_ICON = '<span class="ico codicon codicon-tag" aria-hidden="true"></span>';
+const REMOTE_ICON = '<span class="ico codicon codicon-cloud" aria-hidden="true"></span>';
+const BRANCH_ICON = '<span class="ico codicon codicon-git-branch" aria-hidden="true"></span>';
+/** "You are here" target dot for the current HEAD chip. */
+const CURRENT_DOT = '<span class="dot" aria-hidden="true"></span>';
+
+/** A ref chip to render: the ref plus any remotes folded into it. */
+/** Cloud tail marking a local chip that also exists on the listed remotes. */
+function tailHtml(remotes: string[]): string {
+  return remotes.length
+    ? '<span class="tail codicon codicon-cloud" aria-hidden="true"></span>'
+    : "";
+}
+
+/** Chip label; a remote chip's "origin/" prefix is visually muted. */
+function refNameHtml(ref: WireRef, label: string): string {
+  if (ref.kind === "remoteHead") {
+    const i = label.indexOf("/");
+    if (i > 0) {
+      return (
+        `<span class="nm"><span class="rp">${esc(label.slice(0, i + 1))}</span>` +
+        `${esc(label.slice(i + 1))}</span>`
+      );
+    }
+  }
+  return `<span class="nm">${esc(label)}</span>`;
+}
+
+/**
+ * Estimated rendered chip width (px) for the width-aware fit: padding + border
+ * + leading glyph + ~5.8px/char of 10.5px label text + optional cloud tail,
+ * clamped to the chip CSS min/max. An estimate is fine — chips can still shrink
+ * a few px via flex, and the fit only decides how many chips to attempt.
+ *
+ * KEEP THE CONSTANTS IN SYNC WITH `.chip` ABOVE (6px side padding, 1px border,
+ * 132px max). Over-estimating here silently folds chips that would have fit
+ * into a "+N", which looks like a layout bug rather than a metrics drift.
+ */
+
+
+/**
+ * One ref chip.
+ *
+ * Every chip carries the SAME `data-more` payload the "+N" pill uses, so the
+ * hover card in refTip.ts opens for it with no extra wiring. That is what
+ * reveals a name the column had to ellipsize ("aksdjlaksjdlkasj…") — and it
+ * replaces the native `title` these used to carry, for the reason refTip.ts
+ * was written in the first place: a title needs seconds of holding still, on
+ * the one affordance that exists to show you what you cannot read.
+ *
+ * `aria-label` carries what the title used to say, so nothing is lost to
+ * assistive tech.
+ */
+function chipHtml(entry: ChipEntry): string {
+  const { ref, label, remotes, twins } = entry;
+  const nm = refNameHtml(ref, label);
+  const tail = tailHtml(remotes);
+  const also = remotes.length ? ` · also on ${esc(remotes.join(", "))}` : "";
+  const tip = esc(tipData([{ name: ref.name, label, fullName: ref.fullName, kind: ref.kind, remotes, twins }]));
+  // `data-full` / `data-twins` are what the chip's filter menu (issue #30)
+  // resolves by: the chip's own full name and the folded twins', so "main ☁"
+  // moves as the one thing it looks like. `data-ref` stays git's short name —
+  // the name the desktop's Branches view lists the ref under — and the label
+  // is the full name shorn (never "heads/release").
+  const attrs = (cls: string, what: string) =>
+    `class="${cls}" data-ref="${esc(ref.name)}" data-full="${esc(ref.fullName ?? "")}" data-kind="${ref.kind}" ` +
+    (remotes.length ? `data-remotes="${esc(remotes.join(","))}" data-twins="${esc(twins.join(","))}" ` : "") +
+    `data-more="${tip}" role="button" aria-label="${esc(label)} (${what}${also})"`;
+  switch (ref.kind) {
+    case "currentHead":
+      // No leading dot: the filled accent already marks the current branch, and
+      // the dot + name + cloud tail read as clutter at chip size.
+      return `<span ${attrs("chip chip-current", "current HEAD")}>${BRANCH_ICON}${nm}${tail}</span>`;
+    case "head":
+      return `<span ${attrs("chip chip-head", "local branch")}>${BRANCH_ICON}${nm}${tail}</span>`;
+    case "remoteHead":
+      return `<span ${attrs("chip chip-remote", "remote branch")}>${REMOTE_ICON}${nm}</span>`;
+    case "tag":
+      return `<span ${attrs("chip chip-tag", "tag")}>${TAG_ICON}${nm}</span>`;
+  }
+}
+
+/**
+ * The trailing SHA cell — a click-to-copy affordance. Shows the short sha + a
+ * faint copy glyph (revealed on row hover via CSS). `data-sha-cell` marks it for
+ * the delegated copy handler; `data-label` lets the "Copied" flash restore the
+ * original text exactly. The WIP row renders an empty, non-interactive cell.
+ */
+function shaCellHtml(fullSha: string, shortSha: string, isWip: boolean): string {
+  if (isWip) {
+    return `<div class="meta sha" data-wip="1"></div>`;
+  }
+  const short = esc(shortSha);
+  return (
+    `<div class="meta sha" data-sha-cell="1" data-label="${short}" ` +
+    `title="Click to copy ${esc(fullSha)}">` +
+    `${short}<span class="codicon codicon-copy" aria-hidden="true"></span>` +
+    `</div>`
+  );
+}
+
+/**
+ * The DATE cell label: relative while it's still "today news" (now/5m/3h),
+ * then a real calendar date — a column of "2y" rows carries no information,
+ * while "Jun 12, 2024" places a commit instantly. Year is dropped for the
+ * current year to keep the column lean.
+ */
+function dateLabel(epochSeconds: number, now = Date.now() / 1000): string {
+  if (now - epochSeconds < DAY) {
+    return relTime(epochSeconds, now);
+  }
+  try {
+    const d = new Date(epochSeconds * 1000);
+    const sameYear = d.getFullYear() === new Date(now * 1000).getFullYear();
+    return d.toLocaleDateString(undefined, {
+      month: "short",
+      day: "numeric",
+      ...(sameYear ? {} : { year: "numeric" }),
+    });
+  } catch {
+    return relTime(epochSeconds, now);
+  }
+}
+
+if (!customElements.get("gitstudio-graph")) {
+  customElements.define("gitstudio-graph", CommitGraph);
+}
+
+declare global {
+  interface HTMLElementTagNameMap {
+    "gitstudio-graph": CommitGraph;
+  }
+}

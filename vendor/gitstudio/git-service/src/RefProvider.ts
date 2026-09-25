@@ -1,0 +1,294 @@
+import type { GitRef, GitRefType, RepoHead } from "@gitstudio/host-bridge/git";
+import type { GitProcess } from "./GitProcess";
+
+const FIELD_SEP = "\x1f";
+
+// %(*objectname) peels annotated tags to the COMMIT they tag — %(objectname)
+// alone is the tag object's own sha, which matches no graph row, so annotated
+// tags would never render a chip anywhere. Empty for everything else.
+//
+// The last four fields cost nothing — this read already runs — and each buys a
+// fact the UI could not previously state:
+//   committerdate  a remote branch or tag row with only a name and a sha cannot
+//                  be told from its neighbours, or sorted by anything useful
+//   contents:subject   what the ref actually points AT
+//   objecttype     "tag" for an ANNOTATED tag; the only thing that separates
+//                  the two kinds, and nothing has ever carried it
+//   symref:short   on refs/remotes/*/HEAD this is the repository's DEFAULT
+//                  branch, free, with no extra process
+const REF_FORMAT =
+  `--format=%(objectname)${FIELD_SEP}%(refname)${FIELD_SEP}` +
+  `%(refname:short)${FIELD_SEP}%(HEAD)${FIELD_SEP}%(upstream:short)` +
+  `${FIELD_SEP}%(upstream:track)${FIELD_SEP}%(*objectname)` +
+  `${FIELD_SEP}%(committerdate:unix)${FIELD_SEP}%(contents:subject)` +
+  `${FIELD_SEP}%(objecttype)${FIELD_SEP}%(symref:short)` +
+  // WHO. For a commit-pointing ref, authorname/email answer directly; for an
+  // ANNOTATED tag they are empty (the ref points at a tag object), so the
+  // dereferenced pair (*authorname) answers for the commit underneath and the
+  // tagger pair says who cut the tag — the fact a release row actually wants.
+  `${FIELD_SEP}%(authorname)${FIELD_SEP}%(authoremail)` +
+  `${FIELD_SEP}%(*authorname)${FIELD_SEP}%(*authoremail)` +
+  `${FIELD_SEP}%(taggername)${FIELD_SEP}%(taggeremail)`;
+
+/** Parses `%(upstream:track)` ("[ahead 2, behind 3]", "[gone]", or "") into
+ *  ahead/behind counts. Returns undefined counts when not tracked/clean. */
+function parseTrack(
+  track: string | undefined,
+): { ahead?: number; behind?: number; gone?: boolean } {
+  if (!track) {
+    return {};
+  }
+  const ahead = /ahead (\d+)/.exec(track);
+  const behind = /behind (\d+)/.exec(track);
+  return {
+    ...(ahead ? { ahead: Number(ahead[1]) } : {}),
+    ...(behind ? { behind: Number(behind[1]) } : {}),
+    // `[gone]` — the upstream was deleted. Without it a branch left behind by a
+    // merged pull request is indistinguishable from one in perfect sync.
+    ...(/\bgone\b/.test(track) ? { gone: true } : {}),
+  };
+}
+
+const STASH_FORMAT = `--format=%H${FIELD_SEP}%gd${FIELD_SEP}%gs`;
+
+function refTypeFromFullName(fullName: string): GitRefType | undefined {
+  if (fullName.startsWith("refs/heads/")) {
+    return "head";
+  }
+  if (fullName.startsWith("refs/remotes/")) {
+    return "remote";
+  }
+  if (fullName.startsWith("refs/tags/")) {
+    return "tag";
+  }
+  return undefined;
+}
+
+/**
+ * The branch HEAD is on, as a person reads it and as `git branch` / a
+ * refs/heads/ refspec / `branch.<name>.*` take it: the name under refs/heads/
+ * ("release"), never git's disambiguated "heads/release" (RepoHead.branch).
+ * Undefined when detached. Falls back to `branch` for a head read without a
+ * full name.
+ */
+export function headBranchName(head: RepoHead): string | undefined {
+  if (head.detached) return undefined;
+  if (head.fullName?.startsWith("refs/heads/")) return head.fullName.slice("refs/heads/".length) || head.branch;
+  return head.branch;
+}
+
+/** Lists branches, remote branches, tags, and stashes; reads HEAD. */
+export class RefProvider {
+  constructor(private proc: GitProcess) {}
+
+  async listRefs(): Promise<GitRef[]> {
+    const refs: GitRef[] = [];
+
+    // for-each-ref and stash list are independent — run them concurrently
+    // rather than one git spawn after the other.
+    const [branchesAndTags, stash] = await Promise.all([
+      this.proc.run([
+        "for-each-ref",
+        REF_FORMAT,
+        "refs/heads",
+        "refs/remotes",
+        "refs/tags",
+      ]),
+      this.proc.run(["stash", "list", STASH_FORMAT]),
+    ]);
+    for (const line of splitLines(branchesAndTags.stdout)) {
+      const [
+        objectname, refname, short, head, upstream, track, peeled, date, subject, objectType, symref,
+        authorName, authorEmail, peeledAuthorName, peeledAuthorEmail, taggerName, taggerEmail,
+      ] = line.split(FIELD_SEP);
+      const type = refTypeFromFullName(refname);
+      if (!type) {
+        continue;
+      }
+      const ref: GitRef = {
+        type,
+        name: short,
+        fullName: refname,
+        // Annotated tags: use the peeled commit sha so decorations land on a
+        // real graph row; lightweight tags/branches have no peel (empty).
+        sha: peeled || objectname,
+        isCurrent: head === "*",
+      };
+      if (Number(date)) {
+        ref.date = Number(date);
+      }
+      if (subject) {
+        ref.subject = subject;
+      }
+      if (objectType) {
+        ref.objectType = objectType;
+      }
+      if (symref) {
+        ref.symref = symref;
+      }
+      // The person behind the ref. Priority: the tagger (they CUT this tag),
+      // else the commit author, else the dereferenced commit's author (the
+      // annotated-tag case when no tagger was recorded). Emails arrive in
+      // angle brackets.
+      {
+        const strip = (e: string | undefined): string => (e ?? "").replace(/^<|>$/g, "");
+        if (taggerName) {
+          ref.who = { name: taggerName, email: strip(taggerEmail), tagger: true };
+        } else if (authorName) {
+          ref.who = { name: authorName, email: strip(authorEmail) };
+        } else if (peeledAuthorName) {
+          ref.who = { name: peeledAuthorName, email: strip(peeledAuthorEmail) };
+        }
+      }
+      if (upstream) {
+        ref.upstream = upstream;
+        const { ahead, behind, gone } = parseTrack(track);
+        if (ahead !== undefined) {
+          ref.ahead = ahead;
+        }
+        if (behind !== undefined) {
+          ref.behind = behind;
+        }
+        if (gone) {
+          ref.gone = true;
+        }
+      }
+      refs.push(ref);
+    }
+
+    if (stash.code === 0) {
+      for (const line of splitLines(stash.stdout)) {
+        const [sha, selector] = line.split(FIELD_SEP);
+        if (!selector) {
+          continue;
+        }
+        refs.push({
+          type: "stash",
+          name: selector,
+          fullName: "refs/stash",
+          sha,
+          isCurrent: false,
+        });
+      }
+    }
+
+    return refs;
+  }
+
+  /**
+   * The commit HEAD is on, or "" when there is none (an unborn branch).
+   *
+   * For the graph's "you are here" when no branch is current — a DETACHED
+   * head is on no branch, so a ref listing cannot say where it is. `--verify
+   * --quiet` because a bare `rev-parse HEAD` on an unborn branch prints
+   * "HEAD" back on stdout, which is not an object name.
+   */
+  async headCommit(): Promise<string> {
+    const r = await this.proc.run(["rev-parse", "--verify", "--quiet", "HEAD^{commit}"]);
+    const sha = r.stdout.trim();
+    return r.code === 0 && /^[0-9a-f]{40,64}$/.test(sha) ? sha : "";
+  }
+
+  async getHead(): Promise<RepoHead> {
+    // rev-parse and the two symbolic-ref reads are independent — run them
+    // concurrently.
+    //
+    // BOTH names of the branch. `--short` is git's shortest UNAMBIGUOUS form,
+    // "heads/release" beside a tag "release": right to hand back to git as a
+    // revision (the compare panel does), wrong to show a person or to build a
+    // refs/heads/ refspec from. The full name is what those derive the plain
+    // name from (issue #30's follow-up: the status bar read "heads/release").
+    const [shaResult, branchResult, fullResult] = await Promise.all([
+      this.proc.run(["rev-parse", "HEAD"]),
+      this.proc.run(["symbolic-ref", "--quiet", "--short", "HEAD"]),
+      this.proc.run(["symbolic-ref", "--quiet", "HEAD"]),
+    ]);
+    const sha = shaResult.stdout.trim();
+    const branch = branchResult.stdout.trim();
+    const detached = branchResult.code !== 0 || branch.length === 0;
+    const full = fullResult.code === 0 ? fullResult.stdout.trim() : "";
+
+    return detached
+      ? { detached: true, sha }
+      : { detached: false, branch, sha, ...(full.startsWith("refs/heads/") ? { fullName: full } : {}) };
+  }
+
+  /**
+   * Branches that CONTAIN `sha` — i.e. it is reachable from their tip. This is
+   * a different question from "which refs point AT this commit" (that is
+   * `listRefs`), and it is the one that answers "where has this change already
+   * landed?". JetBrains' "In N branches" is this query.
+   *
+   * Deliberately lazy: on a repo with many branches this walks history and can
+   * take real time, so callers should only ask when the user opts in.
+   *
+   * Returns local branches first, then remote-tracking ones, each de-duplicated
+   * and sorted; `truncated` is true when the result was capped.
+   */
+  async containingBranches(
+    sha: string,
+    opts?: { limit?: number; signal?: AbortSignal },
+  ): Promise<{ branches: string[]; refs: string[]; truncated: boolean }> {
+    const limit = opts?.limit ?? CONTAINS_LIMIT;
+    // FULL refnames, not %(refname:short). The short form is ambiguous here:
+    // a local "feature/x" and a remote "origin/x" are both "a/b", so splitting
+    // on the presence of "/" filed every local topic branch under remotes; and
+    // refs/remotes/origin/HEAD shortens to a bare "origin", which then looked
+    // like a local branch of that name.
+    const result = await this.proc.run(
+      ["branch", "--all", "--contains", sha, "--format=%(refname)"],
+      { signal: opts?.signal },
+    );
+    if (result.code !== 0) {
+      // Unknown sha, or a repo with no branches — report "none" rather than
+      // surfacing a git error for what is an optional, informational query.
+      return { branches: [], refs: [], truncated: false };
+    }
+    const seen = new Set<string>();
+    const locals: string[] = [];
+    const remotes: string[] = [];
+    for (const line of splitLines(result.stdout)) {
+      const ref = line.trim();
+      if (!ref) {
+        continue;
+      }
+      if (ref.startsWith("refs/heads/")) {
+        const name = ref.slice("refs/heads/".length);
+        if (name && !seen.has(name)) {
+          seen.add(name);
+          locals.push(name);
+        }
+      } else if (ref.startsWith("refs/remotes/")) {
+        const name = ref.slice("refs/remotes/".length);
+        // refs/remotes/<remote>/HEAD is a symbolic pointer at the remote's
+        // default branch, not a branch of its own — listing it duplicates
+        // whatever it points at.
+        if (!name || name.endsWith("/HEAD") || seen.has(name)) {
+          continue;
+        }
+        seen.add(name);
+        remotes.push(name);
+      }
+      // Anything else (a detached-HEAD pseudo-entry) names nothing actionable.
+    }
+    locals.sort();
+    remotes.sort();
+    const all = [...locals, ...remotes];
+    // The same list by FULL name, in the same order — what a caller maps
+    // through a ref list (the graph's "Add <branch> to the filter"). Each is
+    // the prefix this loop stripped, put back: exact, not a guess.
+    const full = [...locals.map((n) => `refs/heads/${n}`), ...remotes.map((n) => `refs/remotes/${n}`)];
+    return {
+      branches: all.slice(0, limit),
+      refs: full.slice(0, limit),
+      truncated: all.length > limit,
+    };
+  }
+}
+
+/** Cap on reported containing branches — a repo can have thousands. */
+const CONTAINS_LIMIT = 100;
+
+function splitLines(text: string): string[] {
+  return text.split("\n").filter((line) => line.length > 0);
+}

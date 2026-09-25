@@ -1,0 +1,495 @@
+// A GitToolHost implemented over a real GitContext — the bridge between the
+// shared AI/MCP git-tool catalog (@gitstudio/ai/gitTools) and the actual repo.
+// This is reused verbatim by BOTH the standalone MCP server and the desktop
+// app's in-app agent, so the primitive git operations behind every tool are
+// written and tested once, here, against the same battle-tested git-service
+// providers that power the rest of GitStudio.
+//
+// Only the TYPE is imported from @gitstudio/ai (no runtime dependency on the
+// providers), so this stays a thin, fast adapter.
+
+import type {
+  GitToolHost,
+  ToolBranch,
+  ToolCommit,
+  ToolCommitDetail,
+  ToolCompare,
+  ToolFile,
+  ToolStash,
+  ToolStatusFile,
+  ToolWriteResult,
+} from "@gitstudio/ai/gitTools";
+import type { GitContext } from "./GitContext";
+import { optionLikeCheckout, planRefCheckout } from "./checkoutRef";
+import {
+  changesInTheWayMessage,
+  checkoutOp,
+  newBranchAtHead,
+  operationInTheWayMessage,
+  runApplying,
+  type ApplyOp,
+} from "./changesInTheWay";
+import { branchNameOf } from "./BranchOps";
+import { commitBlockerMessage } from "./StagingProvider";
+import { stashBlockerMessage } from "./StashProvider";
+import { pick, stoppedIn } from "./stoppedOperation";
+
+/** Largest blob the read_file tool will return inline. */
+const FILE_CAP_BYTES = 256 * 1024;
+
+/** Reject an argument that could be misread by git as an option flag. */
+function safe(arg: string): boolean {
+  return arg.length > 0 && !arg.startsWith("-") && !/[\0\n]/.test(arg);
+}
+
+function w(r: { ok: boolean; stderr: string }): ToolWriteResult {
+  return r.ok ? { ok: true } : { ok: false, message: r.stderr.trim() || "git reported an error." };
+}
+
+const UNSAFE: ToolWriteResult = { ok: false, message: "Argument rejected for safety (starts with '-' or contains a control character)." };
+
+export function createGitToolHost(ctx: GitContext): GitToolHost {
+  return new GitContextToolHost(ctx);
+}
+
+class GitContextToolHost implements GitToolHost {
+  constructor(private readonly ctx: GitContext) {}
+
+  repoRoot(): string {
+    return this.ctx.root;
+  }
+
+  async status(): Promise<ToolStatusFile[]> {
+    const r = await this.ctx.process.run(["status", "--porcelain=v1", "-z"]).catch(() => null);
+    if (!r || r.code !== 0) {
+      return [];
+    }
+    return parsePorcelain(r.stdout);
+  }
+
+  async log(opts: { limit?: number; ref?: string; path?: string }): Promise<ToolCommit[]> {
+    const out: ToolCommit[] = [];
+    const paths = opts.path && safe(opts.path) ? [opts.path] : undefined;
+    const revRange = opts.ref && safe(opts.ref) ? opts.ref : "HEAD";
+    try {
+      for await (const c of this.ctx.log.streamCommits({ revRange, maxCount: opts.limit ?? 20, paths })) {
+        out.push({ sha: c.sha, shortSha: c.sha.slice(0, 7), subject: c.subject, author: c.author, date: c.authorDate });
+      }
+    } catch {
+      /* return what we have */
+    }
+    return out;
+  }
+
+  async show(sha: string): Promise<ToolCommitDetail | undefined> {
+    if (!safe(sha)) {
+      return undefined;
+    }
+    let record;
+    try {
+      for await (const c of this.ctx.log.streamCommits({ revRange: sha, maxCount: 1 })) {
+        record = c;
+        break;
+      }
+    } catch {
+      return undefined;
+    }
+    if (!record) {
+      return undefined;
+    }
+    let files: ToolStatusFile[] = [];
+    try {
+      const changes = await this.ctx.commitDetails.getCommitFiles(record.sha, record.parents[0]);
+      files = changes.map((f) => ({ path: f.path, status: f.status, staged: true }));
+    } catch {
+      files = [];
+    }
+    return {
+      sha: record.sha,
+      shortSha: record.sha.slice(0, 7),
+      subject: record.subject,
+      author: record.author,
+      date: record.authorDate,
+      body: record.body,
+      committer: record.committer,
+      parents: record.parents,
+      files,
+    };
+  }
+
+  async diff(opts: { staged?: boolean; path?: string; base?: string; head?: string }): Promise<string> {
+    const args = ["diff", "--no-color", "-M"];
+    if (opts.base && opts.head) {
+      if (!safe(opts.base) || !safe(opts.head)) {
+        return "";
+      }
+      args.push(`${opts.base}..${opts.head}`);
+    } else if (opts.staged) {
+      args.push("--cached");
+    }
+    if (opts.path && safe(opts.path)) {
+      args.push("--", opts.path);
+    }
+    const r = await this.ctx.process.run(args).catch(() => null);
+    return r && r.code === 0 ? r.stdout : "";
+  }
+
+  async branches(): Promise<ToolBranch[]> {
+    const SEP = "\x1f";
+    const fmt =
+      `%(refname:short)${SEP}%(HEAD)${SEP}%(upstream:short)${SEP}` +
+      `%(upstream:track)${SEP}%(contents:subject)`;
+    const r = await this.ctx.process
+      .run(["for-each-ref", `--format=${fmt}`, "--sort=-committerdate", "refs/heads"])
+      .catch(() => null);
+    if (!r || r.code !== 0) {
+      return [];
+    }
+    const branches: ToolBranch[] = [];
+    for (const line of r.stdout.split("\n")) {
+      if (!line.trim()) {
+        continue;
+      }
+      const [name, head, upstream, track, subject] = line.split(SEP);
+      const { ahead, behind } = parseTrack(track ?? "");
+      branches.push({ name, current: head === "*", upstream: upstream || undefined, ahead, behind, subject: subject ?? "" });
+    }
+    return branches;
+  }
+
+  async head(): Promise<{ branch?: string; detached: boolean; sha: string }> {
+    try {
+      const h = await this.ctx.refs.getHead();
+      return h.detached ? { detached: true, sha: h.sha } : { detached: false, branch: h.branch, sha: h.sha };
+    } catch {
+      return { detached: true, sha: "" };
+    }
+  }
+
+  async stashes(): Promise<ToolStash[]> {
+    try {
+      return (await this.ctx.stashes.list()).map((s) => ({ ref: s.ref, message: s.message, time: s.time }));
+    } catch {
+      return [];
+    }
+  }
+
+  async searchCommits(query: string, limit = 20): Promise<ToolCommit[]> {
+    const SEP = "\x1f";
+    const REC = "\x1e";
+    const r = await this.ctx.process
+      .run([
+        "log",
+        `--max-count=${Math.min(limit, 100)}`,
+        "-i",
+        `--grep=${query}`,
+        `--format=%H${SEP}%an${SEP}%at${SEP}%s${REC}`,
+      ])
+      .catch(() => null);
+    if (!r || r.code !== 0) {
+      return [];
+    }
+    const out: ToolCommit[] = [];
+    for (const rec of r.stdout.split(REC)) {
+      const line = rec.replace(/^\n/, "");
+      if (!line.trim()) {
+        continue;
+      }
+      const [sha, author, at, subject] = line.split(SEP);
+      out.push({ sha, shortSha: (sha ?? "").slice(0, 7), author: author ?? "", date: Number(at) || 0, subject: subject ?? "" });
+    }
+    return out;
+  }
+
+  async readFile(path: string, ref = "HEAD"): Promise<ToolFile | undefined> {
+    const rel = path.replace(/^\/+/, "");
+    if (!rel || !safe(ref) || /[\0\n]/.test(rel)) {
+      return undefined;
+    }
+    const r = await this.ctx.process.run(["show", `${ref}:${rel}`]).catch(() => null);
+    if (!r || r.code !== 0) {
+      return undefined;
+    }
+    if (r.stdout.includes("\0")) {
+      return { path: rel, text: "", truncated: false, binary: true };
+    }
+    if (r.stdout.length > FILE_CAP_BYTES) {
+      return { path: rel, text: r.stdout.slice(0, FILE_CAP_BYTES), truncated: true, binary: false };
+    }
+    return { path: rel, text: r.stdout, truncated: false, binary: false };
+  }
+
+  async compare(base: string, head: string): Promise<ToolCompare | undefined> {
+    if (!safe(base) || !safe(head)) {
+      return undefined;
+    }
+    const commits: ToolCommit[] = [];
+    try {
+      for await (const c of this.ctx.log.streamCommits({ revRange: `${base}..${head}`, maxCount: 200 })) {
+        commits.push({ sha: c.sha, shortSha: c.sha.slice(0, 7), subject: c.subject, author: c.author, date: c.authorDate });
+      }
+    } catch {
+      /* empty */
+    }
+    let files: ToolStatusFile[] = [];
+    // -z: without it any non-ASCII path arrives C-quoted and octal-escaped,
+    // and the AI tool then reports a filename that does not exist on disk.
+    const r = await this.ctx.process.run(["diff", "--name-status", "-M", "-z", `${base}...${head}`]).catch(() => null);
+    if (r && r.code === 0) {
+      files = parseNameStatus(r.stdout);
+    }
+    const behindR = await this.ctx.process.run(["rev-list", "--count", `${head}..${base}`]).catch(() => null);
+    const behind = behindR && behindR.code === 0 ? Number(behindR.stdout.trim()) || 0 : 0;
+    return { ahead: commits.length, behind, commits, files };
+  }
+
+  // ── writes ──
+
+  async stage(paths: string[] | "all"): Promise<ToolWriteResult> {
+    if (paths === "all") {
+      return this.run(["add", "-A"]);
+    }
+    if (!paths.every(safe)) {
+      return UNSAFE;
+    }
+    return this.run(["add", "--", ...paths]);
+  }
+
+  async unstage(paths: string[] | "all"): Promise<ToolWriteResult> {
+    if (paths === "all") {
+      return this.run(["reset", "-q"]);
+    }
+    if (!paths.every(safe)) {
+      return UNSAFE;
+    }
+    return this.run(["reset", "-q", "--", ...paths]);
+  }
+
+  async commit(message: string, amend?: boolean): Promise<ToolWriteResult> {
+    if (!message.trim() && !amend) {
+      return { ok: false, message: "A commit message is required." };
+    }
+    const r = await this.ctx.staging.commit(message, { amend });
+    if (r.ok) {
+      return { ok: true };
+    }
+    // An agent needs the diagnosis at least as much as a human does: `git commit`
+    // with nothing staged leaves stderr empty, so `w()` handed back "git reported
+    // an error." — from which the only available next move is to guess. The real
+    // answer names the missing step, which is a tool call the agent already has.
+    const stderr = r.stderr.trim();
+    if (!stderr) {
+      const blocker = await this.ctx.staging.whyNothingToCommit();
+      if (blocker) {
+        return {
+          ok: false,
+          message:
+            blocker === "cleanTree"
+              ? commitBlockerMessage(blocker)
+              : `${commitBlockerMessage(blocker)} Use git_stage first.`,
+        };
+      }
+    }
+    return { ok: false, message: stderr || r.stdout.trim() || "git reported an error." };
+  }
+
+  async createBranch(name: string, checkout?: boolean): Promise<ToolWriteResult> {
+    if (!safe(name)) {
+      return UNSAFE;
+    }
+    // With checkout it is the app's own "create at HEAD and switch" door:
+    // `git checkout -b` over a stopped merge, cherry-pick or revert ENDS it.
+    return checkout ? this.door(newBranchAtHead(name)) : w(await this.ctx.branches.create(name));
+  }
+
+  async checkout(ref: string): Promise<ToolWriteResult> {
+    if (!safe(ref)) {
+      return UNSAFE;
+    }
+    // git_branches reports `%(refname:short)`, which is "heads/release" when a
+    // tag shares the name — and an agent that hands THAT back to
+    // `git checkout` gets a DETACHED HEAD at the branch tip, reported as
+    // success. So a name that is a local branch's short form (or a full
+    // refs/ name) is checked out by its full name, planned the way every
+    // other checkout door plans it. Anything else — a sha, a tag's short
+    // name, a remote-tracking name — is git's to resolve, as it always was.
+    const fullName = ref.startsWith("refs/") ? ref : await this.localBranchFullName(ref);
+    // "refs/heads/-f" passes the argv guard above (it starts with "refs/"),
+    // the planner refuses it — and the fall-through below would have handed
+    // git the full name as a REVISION: a detached HEAD at the branch tip,
+    // reported as success. Say why instead.
+    const optionLike = fullName ? optionLikeCheckout(fullName) : undefined;
+    if (optionLike) {
+      return { ok: false, message: optionLike.message };
+    }
+    const plan = fullName ? await planRefCheckout(this.ctx.process, fullName) : undefined;
+    return this.door(checkoutOp(plan ? plan.args : ["checkout", ref]));
+  }
+
+  /**
+   * A command that moves HEAD, through the door the app's own checkouts use
+   * (runApplying): over a stopped merge, cherry-pick or revert `git checkout`
+   * — and `git checkout -b` — ENDS the operation, and over a rebase or an am
+   * it moves HEAD out from under it. So it is not run over a stop, and the
+   * agent is told what is stopped and the two ways out, in the same sentence
+   * a person gets; a refusal over the user's uncommitted work names the files.
+   */
+  private async door(op: ApplyOp): Promise<ToolWriteResult> {
+    try {
+      const r = await runApplying(this.ctx.process, op);
+      if (r.blocked) return { ok: false, message: operationInTheWayMessage(r.blocked) };
+      if (r.result.code === 0) return { ok: true };
+      if (r.inTheWay) return { ok: false, message: changesInTheWayMessage(r.inTheWay) };
+      return { ok: false, message: r.result.stderr.trim() || r.result.stdout.trim() || `git exited ${r.result.code}.` };
+    } catch (err) {
+      return { ok: false, message: err instanceof Error ? err.message : String(err) };
+    }
+  }
+
+  /** The full name of the local branch git_branches would report as `short`. */
+  private async localBranchFullName(short: string): Promise<string | undefined> {
+    const SEP = "\x1f";
+    const r = await this.ctx.process
+      .run(["for-each-ref", `--format=%(refname:short)${SEP}%(refname)`, "refs/heads"])
+      .catch(() => null);
+    if (!r || r.code !== 0) {
+      return undefined;
+    }
+    for (const line of r.stdout.split("\n")) {
+      const [name, full] = line.split(SEP);
+      if (name === short && full) {
+        return full;
+      }
+    }
+    return undefined;
+  }
+
+  async stashSave(message?: string, includeUntracked?: boolean): Promise<ToolWriteResult> {
+    if (message && /[\0\n]/.test(message)) {
+      return UNSAFE;
+    }
+    const r = await this.ctx.stashes.save({ message, includeUntracked });
+    if (!r.ok) {
+      return { ok: false, message: r.stderr.trim() || "git reported an error." };
+    }
+    // The worst version of this bug, because the caller is a machine: `git stash
+    // push` with nothing to save exits 0, so `w()` reported SUCCESS and an agent
+    // would carry on believing the working tree was safely parked — and then
+    // reasonably do something destructive next.
+    if (!r.created) {
+      return { ok: false, message: stashBlockerMessage(r.blocker ?? "cleanTree") };
+    }
+    return { ok: true };
+  }
+
+  // ── destructive ──
+
+  async discard(paths: string[]): Promise<ToolWriteResult> {
+    if (!paths.every(safe)) {
+      return UNSAFE;
+    }
+    const failures: string[] = [];
+    for (const p of paths) {
+      const r = await this.ctx.staging.discardChanges(p).catch(() => ({ ok: false, stderr: `discard ${p} failed` }));
+      if (!r.ok) {
+        failures.push(r.stderr.trim() || p);
+      }
+    }
+    return failures.length ? { ok: false, message: failures.join("; ") } : { ok: true };
+  }
+
+  async deleteBranch(name: string, force?: boolean): Promise<ToolWriteResult> {
+    if (!safe(name)) {
+      return UNSAFE;
+    }
+    // The same round trip as checkout: git_branches said "heads/release"
+    // beside a tag "release", and `git branch -d heads/release` finds no
+    // branch of that name. Delete by the name under refs/heads/ of the branch
+    // the agent was TOLD about; a name no branch reports is git's to refuse.
+    const fullName = name.startsWith("refs/") ? name : await this.localBranchFullName(name);
+    const branch = fullName ? branchNameOf(fullName) : undefined;
+    return w(await this.ctx.branches.delete(branch ?? name, { force }));
+  }
+
+  async reset(mode: "soft" | "mixed" | "hard", ref: string): Promise<ToolWriteResult> {
+    if (!safe(ref)) {
+      return UNSAFE;
+    }
+    // Over a stop, `git reset` ENDS it without a word: --mixed and --hard
+    // rewrite the index, which clears MERGE_HEAD, CHERRY_PICK_HEAD and
+    // REVERT_HEAD's conflict (and drops unmerged stages a stash pop left),
+    // and any mode moves HEAD out from under a rebase or an am. Refused like
+    // the checkout door, in the same sentence a person gets.
+    const stop = await stoppedIn(this.ctx.process).catch(() => null);
+    if (stop) {
+      return { ok: false, message: operationInTheWayMessage({ kind: "reset", ...pick(stop) }) };
+    }
+    return this.run(["reset", `--${mode}`, ref]);
+  }
+
+  private async run(args: string[]): Promise<ToolWriteResult> {
+    try {
+      const r = await this.ctx.process.run(args);
+      return r.code === 0 ? { ok: true } : { ok: false, message: r.stderr.trim() || `git exited ${r.code}.` };
+    } catch (err) {
+      return { ok: false, message: err instanceof Error ? err.message : String(err) };
+    }
+  }
+}
+
+// ── parsers (local, compact) ─────────────────────────────────────────────────
+
+/** Parse `git status --porcelain=v1 -z` into staged/unstaged tool files. */
+function parsePorcelain(stdout: string): ToolStatusFile[] {
+  const out: ToolStatusFile[] = [];
+  const parts = stdout.split("\0");
+  for (let i = 0; i < parts.length; i++) {
+    const entry = parts[i];
+    if (!entry) {
+      continue;
+    }
+    const x = entry[0];
+    const y = entry[1];
+    let path = entry.slice(3);
+    // A rename/copy carries the new path here and the OLD path as the next NUL field.
+    if (x === "R" || x === "C") {
+      i++; // consume (and drop) the old path
+    }
+    if (x === "?" && y === "?") {
+      out.push({ path, status: "?", staged: false });
+      continue;
+    }
+    if (x && x !== " ") {
+      out.push({ path, status: x, staged: true });
+    }
+    if (y && y !== " ") {
+      out.push({ path, status: y, staged: false });
+    }
+  }
+  return out;
+}
+
+/** Parse `git diff --name-status -M -z` into tool files (staged=false; just the
+ *  change). NUL-separated records, so nothing is quoted or escaped: a status
+ *  token then its path, and two paths for R/C (source, destination). */
+function parseNameStatus(stdout: string): ToolStatusFile[] {
+  const out: ToolStatusFile[] = [];
+  const tok = stdout.split("\0").filter((t) => t.length > 0);
+  for (let i = 0; i < tok.length; i++) {
+    const code = tok[i][0] ?? "?";
+    const paths = code === "R" || code === "C" ? 2 : 1;
+    const path = tok[i + paths]; // the destination — the one that exists now
+    i += paths;
+    if (path) {
+      out.push({ path, status: code, staged: false });
+    }
+  }
+  return out;
+}
+
+/** Parse a `%(upstream:track)` token like "[ahead 2, behind 1]". */
+function parseTrack(track: string): { ahead: number; behind: number } {
+  const ahead = /ahead (\d+)/.exec(track);
+  const behind = /behind (\d+)/.exec(track);
+  return { ahead: ahead ? Number(ahead[1]) : 0, behind: behind ? Number(behind[1]) : 0 };
+}

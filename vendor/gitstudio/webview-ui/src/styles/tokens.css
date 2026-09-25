@@ -1,0 +1,366 @@
+/* ============================================================================
+ * GitStudio webview design tokens
+ * ----------------------------------------------------------------------------
+ * Theme-native primitives + a few utility classes, built ENTIRELY on
+ * --vscode-* variables so every surface looks correct in dark, light, and
+ * high-contrast themes. The only non-theme colors anywhere in the suite are
+ * the existing commit-graph lane palette (graph.css) — never add hardcoded
+ * chrome colors here.
+ *
+ * Surfaces opt in with either:
+ *     @import "./tokens.css";            (from a sibling stylesheet)
+ * or by importing a bundle whose entry already pulls tokens in (diff.css does).
+ *
+ * Utility classes exported for surface agents:
+ *   .gs-section-header   11px uppercase muted section label
+ *   .gs-chip             pill / badge (modifiers below)
+ *     .gs-chip--branch     local branch  (accent-tinted)
+ *     .gs-chip--tag        tag           (amber / charts-yellow tinted)
+ *     .gs-chip--remote     remote ref    (muted)
+ *     .gs-chip--head       current HEAD  (filled accent)
+ *   .gs-btn              secondary button   (+ .gs-btn--primary)
+ *   .gs-row              list row (22–24px) with .is-hover / .is-selected
+ *   .gs-focusable        applies the standard :focus-visible ring
+ *   .gs-muted            descriptionForeground secondary text
+ *   .gs-mono             tabular monospace (sha / counts)
+ *
+ * Icon masks (use as `-webkit-mask`/`mask` on a currentColor box):
+ *   --gs-icon-check, --gs-icon-error, --gs-icon-chevron-up,
+ *   --gs-icon-chevron-down
+ * ========================================================================== */
+
+:root {
+  color-scheme: light dark;
+
+  /* ---- Typography ------------------------------------------------------- */
+  --gs-font-ui: var(--vscode-font-family);
+  --gs-font-mono: var(--vscode-editor-font-family, ui-monospace, monospace);
+  --gs-text-base: 13px;
+  --gs-text-secondary: 11.5px;
+  --gs-text-micro: 11px;
+  --gs-weight-emphasis: 600;
+
+  /* ---- Spacing (4px grid) ---------------------------------------------- */
+  --gs-space-1: 4px;
+  --gs-space-2: 8px;
+  --gs-space-3: 12px;
+  --gs-space-4: 16px;
+  --gs-row-height: 24px;
+  --gs-pad-row: 6px;
+
+  /* ---- Radii ------------------------------------------------------------ */
+  --gs-radius: 6px;
+  --gs-radius-sm: 5px;
+  --gs-radius-pill: 999px;
+
+  /* ---- Color (theme-native; never hardcode chrome) ---------------------- */
+  --gs-bg: var(--vscode-sideBar-background, var(--vscode-editor-background));
+  --gs-fg: var(--vscode-foreground);
+  --gs-fg-muted: var(--vscode-descriptionForeground);
+  --gs-fg-subtle: color-mix(in srgb, var(--gs-fg) 50%, transparent);
+  /* Muted text ON A MENU or popover (headings, "current", footnotes) — kept in
+     lockstep with hostTokens.ts, where the reasoning and the measurements live. */
+  --gs-menu-muted: color-mix(in srgb, var(--vscode-descriptionForeground) 80%, var(--vscode-foreground));
+  /* Theme-native elevation: lift a surface off the base in light AND dark by
+     mixing in a little foreground — keeps panels readable on any theme. */
+  --gs-surface: color-mix(in srgb, var(--gs-fg) 4%, var(--gs-bg));
+  --gs-surface-2: color-mix(in srgb, var(--gs-fg) 7%, var(--gs-bg));
+  --gs-border: color-mix(in srgb, var(--gs-fg) 13%, transparent);
+  --gs-border-soft: color-mix(in srgb, var(--gs-fg) 8%, transparent);
+  /* Base hover — the theme's list-hover. Overridden per-scheme below because
+     most dark themes ship a near-invisible list-hover (≈4% white), so rows and
+     menu items barely react at night. We layer a guaranteed foreground tint on
+     top so the hover always reads, stronger in dark, gentle in light. */
+  --gs-hover: var(--vscode-list-hoverBackground, color-mix(in srgb, var(--gs-fg) 7%, transparent));
+  --gs-selection-bg: var(--vscode-list-activeSelectionBackground);
+  --gs-selection-fg: var(--vscode-list-activeSelectionForeground);
+  --gs-accent: var(--vscode-focusBorder);
+  --gs-accent-text: var(--vscode-textLink-foreground, var(--vscode-focusBorder));
+  --gs-link: var(--vscode-textLink-foreground);
+
+  --gs-chip-bg: var(--vscode-badge-background);
+  --gs-chip-fg: var(--vscode-badge-foreground);
+
+  /* Added / modified / deleted have to be tellable apart AT A GLANCE -- as a
+     4px bar in the graph's Changes column, and as a single letter in a dense
+     file list. VS Code's own gitDecoration palette is not: "added" is a sage
+     green (#81b88b) and "modified" a tan (#E2C08D), and at that size the two
+     read as the same warm grey-green. So the triad is pinned to the
+     widest-separation hues instead -- green / blue / red, which is also the
+     JetBrains and GitHub Desktop convention. charts-* is used rather than a raw
+     hex because those ARE theme-tuned per light/dark (and unlike charts-yellow,
+     none of these three fails AA on light themes). */
+  --gs-status-added: var(--vscode-charts-green, #3fb950);
+  --gs-status-modified: var(--vscode-charts-blue, #58a6ff);
+  --gs-status-deleted: var(--vscode-charts-red, #f85149);
+  /* Extended working-tree states (upstreamed from the Changes view so every
+     surface names them identically). Untracked reads green like an add; a
+     rename reads blue; a conflict reads red; ignored reads muted. */
+  --gs-status-untracked: var(--vscode-gitDecoration-untrackedResourceForeground, var(--vscode-charts-green));
+  --gs-status-renamed: var(--vscode-charts-purple, #bc8cff);
+  --gs-status-conflict: var(--vscode-gitDecoration-conflictingResourceForeground, var(--vscode-charts-red));
+  --gs-status-ignored: var(--vscode-gitDecoration-ignoredResourceForeground, var(--gs-fg-muted));
+  /* Raw charts-yellow as small text fails AA on light themes (≈3:1); the
+     gitDecoration "modified" foreground is the legibility-tuned equivalent and
+     keeps every amber consumer (tag chips, modified "M") readable on both. */
+  /* charts-yellow FIRST. This read gitDecoration-"modified" first, on the
+     reasoning that it is the legibility-tuned equivalent — but "modified" is
+     whatever a theme paints changed FILES, which is blue in most of them
+     (and in the GitStudio desktop, by construction). So every tag chip in the
+     graph rendered as the modified-file blue and the tuned amber never
+     shipped anywhere. charts-yellow is the semantically right slot for an
+     amber, and the decoration colour stays as the fallback for the rare theme
+     that omits the charts palette. */
+  --gs-amber: var(--vscode-charts-yellow, var(--vscode-gitDecoration-modifiedResourceForeground));
+  /* Danger ink for TEXT (a Delete, an Abort): the theme's error colour. Light
+     themes darken it below — see .vscode-light. */
+  --gs-danger: var(--vscode-errorForeground, #f14c4c);
+
+  /* ---- Brand ------------------------------------------------------------ */
+  /* GitStudio violet. The mark's "one git tone" is #A98CFF (a light line
+     color); this is a deeper, AA-safe shade of that hue for SOLID primary
+     buttons with white text. Fixed across light AND dark so the primary action
+     is unmistakably GitStudio, not the theme's default (usually blue) accent. */
+  --gs-brand: #7458e8;
+  --gs-brand-hover: #7d61ec;
+  --gs-brand-fg: #ffffff;
+
+  /* ---- Elevation -------------------------------------------------------- */
+  --gs-shadow-1: 0 1px 2px rgba(0, 0, 0, 0.16);
+  --gs-shadow-2: 0 2px 6px rgba(0, 0, 0, 0.14), 0 1px 2px rgba(0, 0, 0, 0.14);
+  --gs-glow: 0 0 0 3px color-mix(in srgb, var(--gs-accent) 24%, transparent);
+
+  /* ---- Motion ----------------------------------------------------------- */
+  --gs-motion-fast: 110ms;
+  --gs-motion: 170ms;
+  --gs-ease: cubic-bezier(0.2, 0, 0, 1);
+
+  /* ---- Inline icon masks (currentColor via mask) ------------------------ */
+  --gs-icon-check: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none" stroke="black" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 8.5l3 3 6-7"/></svg>');
+  --gs-icon-error: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none" stroke="black" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="5.5"/><path d="M5.6 5.6l4.8 4.8M10.4 5.6l-4.8 4.8"/></svg>');
+  --gs-icon-chevron-up: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none" stroke="black" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 10l4-4 4 4"/></svg>');
+  --gs-icon-chevron-down: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none" stroke="black" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6l4 4 4-4"/></svg>');
+}
+
+/* ---- Hover legibility (theme-aware) ------------------------------------
+ * Dark themes' native list-hover is often ~4% white — nearly invisible at
+ * night. Layer a foreground tint over it so every row / menu item visibly
+ * responds. Dark gets a firm boost; light stays subtle; high-contrast is left
+ * on its own crisp value (it never hits these class scopes). VS Code stamps
+ * these classes on the webview <body>, so descendants inherit the override. */
+.vscode-dark {
+  --gs-hover: color-mix(in srgb, var(--gs-fg) 12%, var(--vscode-list-hoverBackground, transparent));
+  /* A slightly firmer variant for floating menus/popovers, where a row must
+     read as "armed" against an already-elevated surface. */
+  --gs-hover-strong: color-mix(in srgb, var(--gs-fg) 17%, var(--vscode-list-hoverBackground, transparent));
+}
+.vscode-light {
+  --gs-hover: color-mix(in srgb, var(--gs-fg) 6%, var(--vscode-list-hoverBackground, transparent));
+  --gs-hover-strong: color-mix(in srgb, var(--gs-fg) 10%, var(--vscode-list-hoverBackground, transparent));
+  /* VS Code's Light Modern ships errorForeground #F85149: 3.35:1 on its white
+     editor, under AA for the text of a Delete or Abort button. Mixed 40%
+     toward the foreground it keeps its red and reads 5.5:1 (Light+'s darker
+     #A1260D only gets darker). */
+  --gs-danger: color-mix(in srgb, var(--vscode-errorForeground, #e51400) 60%, var(--vscode-foreground, #000000));
+}
+/* The merge shell's danger ink (.ms-shell's --ms-danger, shell.css) IS this
+   one, so on a light theme the no-text panel's Delete the file clears AA too. */
+:root {
+  --gs-hover-strong: color-mix(in srgb, var(--gs-fg) 12%, var(--gs-hover));
+}
+
+/* ---- The page's colour scheme is the THEME's, not the OS's --------------
+ * `light dark` (above) lets the browser choose by the OS setting, and it
+ * paints what a page leaves transparent — and its scrollbars and form
+ * controls — in the scheme it chose: a light theme on a Mac in dark mode had
+ * near-black (#121212) bars beside the Conflicts dashboard. VS Code (and the
+ * desktop app) name the theme's kind on <body>; the root takes that. A page
+ * with no theme class still follows the OS. */
+:root:has(> body.vscode-light),
+:root:has(> body.vscode-high-contrast-light) {
+  color-scheme: light;
+}
+:root:has(> body.vscode-dark),
+:root:has(> body.vscode-high-contrast:not(.vscode-high-contrast-light)) {
+  color-scheme: dark;
+}
+
+/* ---- Section header ----------------------------------------------------- */
+.gs-section-header {
+  font: var(--gs-weight-emphasis) var(--gs-text-micro) / 1.4 var(--gs-font-ui);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--gs-fg-muted);
+  padding: var(--gs-space-2) var(--gs-pad-row) var(--gs-space-1);
+  margin: 0;
+}
+
+/* ---- Secondary / muted text & mono -------------------------------------- */
+.gs-muted {
+  color: var(--gs-fg-muted);
+  font-size: var(--gs-text-secondary);
+}
+.gs-mono {
+  font-family: var(--gs-font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---- Chips / pills ------------------------------------------------------ */
+.gs-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--gs-space-1);
+  height: 17px;
+  padding: 0 6px;
+  border-radius: var(--gs-radius);
+  font: var(--gs-text-micro) / 1 var(--gs-font-ui);
+  color: var(--gs-chip-fg);
+  background: var(--gs-chip-bg);
+  white-space: nowrap;
+  border: 1px solid transparent;
+}
+.gs-chip--branch {
+  color: var(--gs-accent);
+  background: color-mix(in srgb, var(--gs-accent) 14%, transparent);
+  border-color: color-mix(in srgb, var(--gs-accent) 34%, transparent);
+}
+.gs-chip--tag {
+  color: var(--gs-amber);
+  background: color-mix(in srgb, var(--gs-amber) 14%, transparent);
+  border-color: color-mix(in srgb, var(--gs-amber) 32%, transparent);
+}
+.gs-chip--remote {
+  color: var(--gs-fg-muted);
+  background: color-mix(in srgb, var(--gs-fg-muted) 12%, transparent);
+  border-color: color-mix(in srgb, var(--gs-fg-muted) 24%, transparent);
+}
+.gs-chip--head {
+  color: var(--gs-brand-fg);
+  background: var(--gs-brand);
+  border-color: var(--gs-brand);
+  font-weight: var(--gs-weight-emphasis);
+}
+
+/* ---- Buttons ------------------------------------------------------------ */
+.gs-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--gs-space-1);
+  height: 24px;
+  padding: 0 10px;
+  border: 1px solid transparent;
+  border-radius: var(--gs-radius);
+  font: var(--gs-text-base) var(--gs-font-ui);
+  color: var(--vscode-button-secondaryForeground, var(--gs-fg));
+  background: var(--vscode-button-secondaryBackground, transparent);
+  cursor: pointer;
+  transition: filter var(--gs-motion) var(--gs-ease),
+    background var(--gs-motion) var(--gs-ease),
+    box-shadow var(--gs-motion) var(--gs-ease),
+    border-color var(--gs-motion) var(--gs-ease),
+    transform var(--gs-motion-fast) var(--gs-ease);
+}
+/* Scoped to :not(--primary): the secondary hover background is a SOLID colour
+   and would otherwise out-specify (and clobber) the primary button's gradient on
+   hover — turning a violet primary button grey. Primary keeps its gradient and
+   brightens via the rule below. */
+.gs-btn:not(.gs-btn--primary):hover {
+  background: var(--vscode-button-secondaryHoverBackground, var(--gs-hover));
+}
+.gs-btn--primary {
+  color: var(--gs-brand-fg);
+  background:
+    linear-gradient(180deg,
+      color-mix(in srgb, var(--gs-brand) 86%, white 14%),
+      var(--gs-brand));
+  border-color: var(--gs-brand);
+  font-weight: var(--gs-weight-emphasis);
+  box-shadow: var(--gs-shadow-1),
+    inset 0 1px 0 color-mix(in srgb, white 18%, transparent);
+}
+.gs-btn--primary:hover {
+  /* Brighten the gradient smoothly (filter animates; a gradient background
+     cannot be interpolated) and lift the shadow. */
+  filter: brightness(1.1);
+  border-color: var(--gs-brand-hover);
+  box-shadow: var(--gs-shadow-2),
+    inset 0 1px 0 color-mix(in srgb, white 24%, transparent);
+}
+.gs-btn:active:not([disabled]) { transform: translateY(1px); }
+.gs-btn--primary:active:not([disabled]) { filter: brightness(0.95); }
+.gs-btn[disabled] {
+  opacity: 0.45;
+  cursor: default;
+  /* A button disabled while hovered keeps :hover in Chromium — neutralize the
+     primary hover's filter/shadow so a disabled button always reads inert. */
+  filter: none;
+  box-shadow: none;
+}
+
+/* ---- List rows ---------------------------------------------------------- */
+.gs-row {
+  display: flex;
+  align-items: center;
+  gap: var(--gs-space-2);
+  min-height: var(--gs-row-height);
+  padding: 0 var(--gs-pad-row);
+  border-left: 2px solid transparent;
+  color: var(--gs-fg);
+  font: var(--gs-text-base) var(--gs-font-ui);
+  cursor: pointer;
+  transition: background var(--gs-motion-fast) var(--gs-ease);
+}
+.gs-row:hover,
+.gs-row.is-hover {
+  background: var(--gs-hover);
+}
+.gs-row.is-selected,
+.gs-row[aria-selected="true"] {
+  background: var(--gs-selection-bg);
+  color: var(--gs-selection-fg);
+  border-left-color: var(--gs-accent);
+}
+
+/* ---- Focus ring --------------------------------------------------------- */
+.gs-focusable:focus-visible,
+.gs-row:focus-visible,
+.gs-btn:focus-visible,
+.gs-chip:focus-visible {
+  outline: 1px solid var(--gs-accent);
+  outline-offset: -1px;
+  border-radius: var(--gs-radius);
+}
+
+/* ---- Inline status glyphs (currentColor via mask) ----------------------- */
+.gs-glyph {
+  display: inline-block;
+  width: 13px;
+  height: 13px;
+  vertical-align: -2px;
+  background-color: currentColor;
+  -webkit-mask-position: center;
+  mask-position: center;
+  -webkit-mask-size: contain;
+  mask-size: contain;
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+}
+.gs-glyph--check {
+  -webkit-mask-image: var(--gs-icon-check);
+  mask-image: var(--gs-icon-check);
+  color: var(--gs-status-added);
+}
+.gs-glyph--error {
+  -webkit-mask-image: var(--gs-icon-error);
+  mask-image: var(--gs-icon-error);
+  color: var(--gs-status-deleted);
+}
+
+/* ---- Motion: respect reduced-motion ------------------------------------- */
+@media (prefers-reduced-motion: reduce) {
+  .gs-btn,
+  .gs-row {
+    transition: none;
+  }
+}
