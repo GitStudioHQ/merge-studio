@@ -1,16 +1,27 @@
 name: Release
 
-# Publishes Merge Studio to the VS Code Marketplace and Open VSX whenever a
-# v*.*.* tag is pushed, then attaches the .vsix to the GitHub Release.
+# Publishes Merge Studio to the VS Code Marketplace and Open VSX when a
+# vX.Y.Z tag is pushed, and attaches the .vsix to the tag's GitHub Release.
+# This file is merge-studio's own: GitStudio's export never writes it
+# (RELEASING.md has the whole round trip).
 #
 # One-time setup (Settings -> Secrets and variables -> Actions):
-#   VSCE_PAT  - Azure DevOps PAT with Marketplace > Manage scope (publisher: gitstudio)
-#   OVSX_PAT  - Open VSX access token (open-vsx.org -> Settings -> Access Tokens)
+#   VSCE_PAT  Azure DevOps PAT, scope "Marketplace > Manage", publisher `gitstudio`
+#             (global PATs stop working on 2026-12-01, see RELEASING.md)
+#   OVSX_PAT  Open VSX access token (namespace `gitstudio`)
 #
-# Release flow:
-#   1. bump "version" in package.json + add a CHANGELOG entry
-#   2. git tag v0.3.1 && git push origin v0.3.1
-#   -> this workflow packages once and publishes to both registries.
+# Cut a release: merge the export that carries the new version, wait for CI
+# on main to go green, then tag that commit:
+#   git tag v1.0.0 <commit> && git push origin v1.0.0
+#
+# Run by hand (workflow_dispatch) from a v* tag, it publishes that tag again,
+# after a missing secret is added. Run by hand from main, it is a dry run:
+# every check and the package, uploaded as a workflow artifact, and nothing
+# published. Any other ref is refused.
+#
+# The .vsix is attached to the Release BEFORE publishing, so a failed publish
+# still leaves a downloadable artifact, and the publish steps fail loudly
+# when a secret is missing.
 
 on:
   push:
@@ -21,13 +32,28 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   release:
     runs-on: ubuntu-latest
     env:
-      VSCE_PAT: ${{ secrets.VSCE_PAT }}
-      OVSX_PAT: ${{ secrets.OVSX_PAT }}
+      # Hermetic git for the tests: no user or system config leaks in.
+      GIT_CONFIG_NOSYSTEM: '1'
+      PUBLISH: ${{ startsWith(github.ref, 'refs/tags/v') }}
     steps:
+      - name: "Guard: a v* tag or main"
+        run: |
+          case "$GITHUB_REF" in
+            refs/tags/v*|refs/heads/main) ;;
+            *)
+              echo "::error::Release runs from a v* tag (publish) or main (dry run), not ${GITHUB_REF}."
+              exit 1
+              ;;
+          esac
+
       - uses: actions/checkout@v7
 
       - uses: actions/setup-node@v6
@@ -35,28 +61,92 @@ jobs:
           node-version: '22'
           cache: npm
 
+      # The tag names the release, but vsce ships whatever package.json says:
+      # a mismatch would publish the wrong version under this tag.
+      - name: "Guard: tag matches package.json"
+        if: env.PUBLISH == 'true'
+        run: |
+          node -e '
+            const v = require("./package.json").version;
+            const tag = process.env.GITHUB_REF_NAME.replace(/^v/, "");
+            if (v !== tag) {
+              console.error(`Tag v${tag} != package.json version ${v}`);
+              process.exit(1);
+            }'
+
+      # What is published is exactly GitStudio's code: any difference in
+      # vendor/gitstudio fails, and --strict fails a root file that differs
+      # from what the export wrote as well.
+      - name: Vendored GitStudio code matches GitStudio
+        run: node scripts/check-parity.mjs --strict
+
       - run: npm ci
 
-      - name: Type-check & test
-        run: |
-          npm run check-types
-          npm test
+      - name: Type-check
+        run: npm run check-types
 
+      - name: Test
+        run: npm test
+
+      # --no-dependencies: esbuild bundles everything, nothing in node_modules
+      # ships. --baseImagesUrl: the README's screenshots are not in the .vsix
+      # (.vscodeignore), so vsce rewrites their links to GitHub; pinned to the
+      # tag, the published README keeps this release's images whatever main
+      # does later.
       - name: Package
-        run: npx @vscode/vsce package -o merge-studio.vsix
+        run: |
+          REF="${GITHUB_SHA}"
+          if [ "$PUBLISH" = "true" ]; then REF="${GITHUB_REF_NAME}"; fi
+          npx @vscode/vsce package --no-dependencies -o merge-studio.vsix \
+            --baseImagesUrl "https://github.com/${GITHUB_REPOSITORY}/raw/${REF}"
+          if unzip -Z1 merge-studio.vsix | grep -E '^extension/(vendor|src|media/screenshots)/'; then
+            echo "::error::The package carries source or store artwork (listed above)."
+            exit 1
+          fi
 
-      - name: Publish to VS Code Marketplace
-        if: env.VSCE_PAT != ''
-        run: npx @vscode/vsce publish --packagePath merge-studio.vsix
+      - uses: actions/upload-artifact@v7
+        with:
+          name: merge-studio-vsix
+          path: merge-studio.vsix
 
-      - name: Publish to Open VSX
-        if: env.OVSX_PAT != ''
-        run: npx ovsx publish merge-studio.vsix
-
+      # The notes are the version's CHANGELOG entry.
       - name: Attach .vsix to the GitHub Release
-        if: startsWith(github.ref, 'refs/tags/')
+        if: env.PUBLISH == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "${GITHUB_REF_NAME}" merge-studio.vsix --generate-notes \
-            || gh release upload "${GITHUB_REF_NAME}" merge-studio.vsix --clobber
+          VERSION="${GITHUB_REF_NAME#v}"
+          awk -v v="$VERSION" '
+            $0 ~ "^## " v "( |$)" { on = 1; next }
+            on && /^## / { exit }
+            on { print }' CHANGELOG.md > notes.md
+          if [ -s notes.md ]; then
+            gh release create "${GITHUB_REF_NAME}" merge-studio.vsix \
+              --title "Merge Studio ${VERSION}" --notes-file notes.md \
+              || gh release upload "${GITHUB_REF_NAME}" merge-studio.vsix --clobber
+          else
+            gh release create "${GITHUB_REF_NAME}" merge-studio.vsix --generate-notes \
+              || gh release upload "${GITHUB_REF_NAME}" merge-studio.vsix --clobber
+          fi
+
+      - name: Publish to VS Code Marketplace
+        if: env.PUBLISH == 'true'
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+        run: |
+          if [ -z "$VSCE_PAT" ]; then
+            echo "::error::VSCE_PAT is missing: the Marketplace publish did not run. Add the secret, then run this workflow again from the tag."
+            exit 1
+          fi
+          npx @vscode/vsce publish --packagePath merge-studio.vsix
+
+      - name: Publish to Open VSX
+        if: env.PUBLISH == 'true'
+        env:
+          OVSX_PAT: ${{ secrets.OVSX_PAT }}
+        run: |
+          if [ -z "$OVSX_PAT" ]; then
+            echo "::error::OVSX_PAT is missing: the Open VSX publish did not run. Add the secret, then run this workflow again from the tag."
+            exit 1
+          fi
+          npx ovsx publish merge-studio.vsix
