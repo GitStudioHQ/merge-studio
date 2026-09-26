@@ -3,7 +3,7 @@
   "note": "Written by gitstudio's scripts/merge-studio/export.mjs. Files under vendor/gitstudio are copies of GitStudio's shared code, and `npm run check-parity` reports any difference. A pull request may still change them: a maintainer imports it into gitstudio (scripts/merge-studio/import.mjs) and exports again.",
   "gitstudio": {
     "repository": "https://github.com/GitStudioHQ/gitstudio",
-    "sha": "3ee8303477d29fa6ef8bb805a2b47f482b1cbbbf",
+    "sha": "6fcda9aa8e4254c66d832233a270b2b3fb502779",
     "dirty": false
   },
   "sources": [
@@ -239,7 +239,7 @@
     "src/links.ts": "df7c0c2446a483667f453fb5f4dfecd8f9c0194ecb24d688630c948b88df47e0",
     "src/msProduct.ts": "0aa10d7696c801c7e1603df5f2aa71a3faa0e22f1ee7f8820be32a528fb11889",
     "src/shell.ts": "be6a0499ed1321a6b1d2829b6c9603f6f7f025721b77cab3c8fd54399a8c3a59",
-    "test/manifest.test.ts": "37540bd988613a0cde94cb4d44cefe1f568f9b7d0a9379c3e497be93c53f9292",
+    "test/manifest.test.ts": "9fb3ea67856113c6c8cf002f6a0c1dc02b78470e31aa18c164718b24b60d3820",
     "test/parity.test.ts": "9292af17317be5fdff78b81951f4a1bc7637da1348d889a9033580643e886e61",
     "test/shell.test.ts": "1766caf5e04c61a03749b35780334f6b310c9207f2bb316e9aa6d9524980e75f",
     "tsconfig.json": "79024625f5c17314d4dc88f335eccd75ca8be9fea5f5952746fa6b3a573ea29a"
