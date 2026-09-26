@@ -1,0 +1,29 @@
+CHANGELOG.md
+  s_26f5e669d3043c::t_daea5143967911 3-6
+README.md
+  s_26f5e669d3043c::t_b54e9f2e769de5 8,12-13
+VENDORED_FROM.json
+  s_26f5e669d3043c::t_cc613ba90ceb9d 6,195,200,232-233,242
+package-lock.json
+  s_26f5e669d3043c::t_cff95f4de3938a 3,9
+package.json
+  s_26f5e669d3043c::t_8fdcd16a5d0eb5 5
+test/manifest.test.ts
+  s_26f5e669d3043c::t_8e6044ffa7279e 51-52,54-58,227-229,232-236
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "8402602bee6af789fcfcbc846854f5fd521fb01d",
+  "prompts": {},
+  "sessions": {
+    "s_26f5e669d3043c": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "84d5bd8e-bf89-4d7c-9932-e410f3e06481",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Anton Arnaudov <anton.arnaudov.me@gmail.com>"
+    }
+  }
+}
