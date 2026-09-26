@@ -3,7 +3,7 @@
   "note": "Written by gitstudio's scripts/merge-studio/export.mjs. Files under vendor/gitstudio are copies of GitStudio's shared code, and `npm run check-parity` reports any difference. A pull request may still change them: a maintainer imports it into gitstudio (scripts/merge-studio/import.mjs) and exports again.",
   "gitstudio": {
     "repository": "https://github.com/GitStudioHQ/gitstudio",
-    "sha": "97faa2e15f0f5729faec304a19bb96c68b0b8e7d",
+    "sha": "3ee8303477d29fa6ef8bb805a2b47f482b1cbbbf",
     "dirty": false
   },
   "sources": [
@@ -192,12 +192,12 @@
   "shell": {
     ".github/workflows/ci.yml": "2ba5bf68a52abfa3f6899329e68044ddfba98fe424c7a8789002076b7ac041c0",
     ".vscodeignore": "b96a4c4d1d32bd78cbbc51ab45095eccec021bda2d12368addfd4faeedd1f2e3",
-    "CHANGELOG.md": "ea2058bdba878e621847b30df0177c4acc782ceee57f7376911e9257430bdd18",
+    "CHANGELOG.md": "6b17d12fab5dd95cf98496931fd28db2844c95c575ce6a8472b786e2eb06c9e4",
     "CONTRIBUTING.md": "92761a80692434c841faff9e131a0a7b7239294e2604ebb1cb9548cd441d33d6",
     "LICENSE": "225531ab14a569bc667af47b6e770c563c950eb3591c037294af9b5c39032524",
     "LICENSE-APACHE": "6090c1666a823939da2637c56b06fa19080f4cf01920118630e91916914195e3",
     "NOTICE": "e90e240e7d819fc280c87be76a86ab6979d9c0e652ce66b68f612e188c5ea391",
-    "README.md": "b0184c05d3331f8c4c398fe708c11becb9ab0d649f74d71bcdf3ae962ed11e37",
+    "README.md": "24e2996093ec0ba799ee48b3c0256d72211a08513c4666df6d2b6a302bdb9090",
     "RELEASING.md": "fa328caec8b535449127c33a82511556a8134de756ba98db0ed31531c72c105c",
     "SHOTS.md": "510d7291818732849dcf0f0ef77fb3ef929ad6e98419409fee3cb4c24e9c1ec7",
     "esbuild.js": "07f630765373eb1bc7dc5f473fcab5985ba0f889afb94e1ccf31451b18afcfc3",
@@ -229,8 +229,8 @@
     "media/walkthrough/rebase-sides-light.png": "ae1d5fbf55d3eea24814a6c7780d45dc9fbe88974806868b9f9b125a70a2ff4a",
     "media/walkthrough/sample-merge-dark.png": "b5613c732f7c52c7071b98153b6d27f02d8fb1a9bba70080733b6f7860d1b92e",
     "media/walkthrough/sample-merge-light.png": "d50dcb2b805c7846242a885bab7a2ec9aefb1ec60cf74a30408583f6ab33d1df",
-    "package-lock.json": "227c563f31e3b40b15e511fb237d6d79c146d64b968fe8242ce12615a21a0e1b",
-    "package.json": "aceb728b3b12fb89d0bb60cc3ce729352fe3e56b8240f393fb1158d77502fd91",
+    "package-lock.json": "1c9c98e1bdb39a7aea95b3b950328cb93297ab3fa5eb859bb0fa131695fe0af4",
+    "package.json": "88650f9f9c9550140733939c881ff26e121d5272c9170ae63f27e5553343efe0",
     "scripts/check-parity.mjs": "c737cc201ebb0929d079a5bca9525c683b908bd0dd16ab7b758dd96da7129f06",
     "scripts/test/checkParity.test.mjs": "9cbb75dd2336e3c64587076ae5ba04c964469df0461b20703ad8bada2c5ab39b",
     "src/extension.ts": "e118cbce9936360e15e54a885edecf40225b5385e53051a84a402c0d736756ea",
@@ -239,7 +239,7 @@
     "src/links.ts": "df7c0c2446a483667f453fb5f4dfecd8f9c0194ecb24d688630c948b88df47e0",
     "src/msProduct.ts": "0aa10d7696c801c7e1603df5f2aa71a3faa0e22f1ee7f8820be32a528fb11889",
     "src/shell.ts": "be6a0499ed1321a6b1d2829b6c9603f6f7f025721b77cab3c8fd54399a8c3a59",
-    "test/manifest.test.ts": "cbadc038afecc8bc545b1091039643c596484805781fbe0919eee99828070eda",
+    "test/manifest.test.ts": "37540bd988613a0cde94cb4d44cefe1f568f9b7d0a9379c3e497be93c53f9292",
     "test/parity.test.ts": "9292af17317be5fdff78b81951f4a1bc7637da1348d889a9033580643e886e61",
     "test/shell.test.ts": "1766caf5e04c61a03749b35780334f6b310c9207f2bb316e9aa6d9524980e75f",
     "tsconfig.json": "79024625f5c17314d4dc88f335eccd75ca8be9fea5f5952746fa6b3a573ea29a"
