@@ -1,0 +1,21 @@
+VENDORED_FROM.json
+  s_26f5e669d3043c::t_427ff53daa7daf 6,242
+test/manifest.test.ts
+  s_26f5e669d3043c::t_ebb2c29cc6d21a 233-235
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "78fd47b102a9733f775e1d45401b58d5fd07122c",
+  "prompts": {},
+  "sessions": {
+    "s_26f5e669d3043c": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "84d5bd8e-bf89-4d7c-9932-e410f3e06481",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Anton Arnaudov <anton.arnaudov.me@gmail.com>"
+    }
+  }
+}
