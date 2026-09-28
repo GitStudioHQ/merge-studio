@@ -1,0 +1,27 @@
+VENDORED_FROM.json
+  s_26f5e669d3043c::t_c6bf73fd760557 6,197,209-211
+vendor/gitstudio/webview-ui/src/markdown.ts
+  s_26f5e669d3043c::t_63c0ca8141298e 242-256
+vendor/gitstudio/webview-ui/src/pr/prCreate.ts
+  s_26f5e669d3043c::t_7338ba6b643e52 28,67-73,77-82,722,803-805
+vendor/gitstudio/webview-ui/src/pr/prList.ts
+  s_26f5e669d3043c::t_89c03a97fb6202 118-124,128-133,454,787-788
+vendor/gitstudio/webview-ui/src/pr/prPage.ts
+  s_26f5e669d3043c::t_e9e99ed2e83485 28,94-100,104-109,489,1744-1746
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "82de7af5d88501ec9548e8916229abcdc4ae43bf",
+  "prompts": {},
+  "sessions": {
+    "s_26f5e669d3043c": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "84d5bd8e-bf89-4d7c-9932-e410f3e06481",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Anton Arnaudov <anton.arnaudov.me@gmail.com>"
+    }
+  }
+}
