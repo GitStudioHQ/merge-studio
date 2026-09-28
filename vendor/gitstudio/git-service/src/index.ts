@@ -55,18 +55,42 @@ export type {
 export { StatusProvider, parseV2 as parseStatusV2 } from "./StatusProvider";
 export type { RepoStatus, StatusFile } from "./StatusProvider";
 export { SnapshotProvider } from "./SnapshotProvider";
-export type { Snapshot } from "./SnapshotProvider";
+export type { Snapshot, SnapshotBranch, SnapshotScope, RestorePlan, RestoreStep } from "./SnapshotProvider";
 export { StashProvider } from "./StashProvider";
 export type {
   StashEntry,
   StashSaveOptions,
   StashOpResult,
 } from "./StashProvider";
-export { WorktreeProvider, parseWorktreePorcelain } from "./WorktreeProvider";
+export {
+  WorktreeProvider,
+  parseWorktreePorcelain,
+  parseWorktreePorcelainZ,
+} from "./WorktreeProvider";
+export { folderKey, sameFolder, nativePath } from "./folderPath";
+export type { PathRules } from "./folderPath";
+export {
+  parseRefFacts,
+  defaultBranchOf,
+  summarize as summarizeWorktrees,
+  unpublishedRule,
+  unpublishedRange,
+} from "./worktreeState";
+export type {
+  WorktreeSummary,
+  WorktreesSnapshot,
+  WorktreeStatus,
+  WorktreeFileChange,
+  WorktreeCommit,
+  UnpublishedRule,
+} from "./worktreeState";
 export type {
   WorktreeEntry,
   WorktreeAddOptions,
   WorktreeRemoveOptions,
+  WorktreeAgreedRemoveOptions,
+  WorktreeLockOptions,
+  WorktreeRemoval,
   WorktreeOpResult,
 } from "./WorktreeProvider";
 export { BranchOps } from "./BranchOps";

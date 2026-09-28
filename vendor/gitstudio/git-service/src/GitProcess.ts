@@ -59,6 +59,14 @@ export interface GitRunWithInputOptions extends GitRunOptions {
    * (see LogProvider.streamCommits).
    */
   input?: string;
+  /**
+   * Extra environment for this one run, over the process's own. For plumbing
+   * that works on a scratch index (`GIT_INDEX_FILE`) or writes a commit with
+   * another commit's identity and dates (`GIT_AUTHOR_*`, `GIT_COMMITTER_*`) —
+   * StashProvider.subset. Never a way to pass arguments: git reads these as
+   * values, not options.
+   */
+  env?: Readonly<Record<string, string>>;
 }
 
 /** Hardened config flags prepended to every invocation. */
@@ -155,6 +163,22 @@ export class GitProcess {
     this.onRun = opts.onRun;
   }
 
+  /**
+   * The same git — binary, run hook, pool size — in another folder: for a
+   * read about ANOTHER worktree of this repository, whose index and operation
+   * markers are its own, without a GitContext for it. It has its own pool and
+   * its own children, so dispose() here does not reach them; keep it to short
+   * reads that end by themselves.
+   */
+  at(cwd: string): GitProcess {
+    return new GitProcess({
+      cwd,
+      gitPath: this.gitPath,
+      maxConcurrent: this.maxConcurrent,
+      onRun: this.onRun,
+    });
+  }
+
   /** Fire the onRun observer for a completed invocation (best-effort). */
   private report(
     args: string[],
@@ -205,10 +229,14 @@ export class GitProcess {
     }
   }
 
-  private spawnChild(args: string[]): ChildProcessWithoutNullStreams {
+  private spawnChild(
+    args: string[],
+    extraEnv?: Readonly<Record<string, string>>,
+  ): ChildProcessWithoutNullStreams {
     const argv = [...HARDENED_ARGS, ...args];
     const env: NodeJS.ProcessEnv = {
       ...process.env,
+      ...extraEnv,
       GIT_OPTIONAL_LOCKS: "0",
       // Neither host has a terminal, so a git credential/passphrase prompt is
       // an unanswerable question that blocks forever — a fetch/pull/push over
@@ -251,7 +279,7 @@ export class GitProcess {
     try {
       return await new Promise<GitRunResult>((resolve, reject) => {
         const startedAt = Date.now();
-        const spawned = this.spawnChild(args);
+        const spawned = this.spawnChild(args, opts?.env);
         child = spawned;
 
         feedStdin(spawned, opts?.input);
@@ -351,7 +379,7 @@ export class GitProcess {
     await this.acquire();
 
     const startedAt = Date.now();
-    const spawned = this.spawnChild(args);
+    const spawned = this.spawnChild(args, opts?.env);
     feedStdin(spawned, opts?.input);
     const decoder = new TextDecoder("utf8");
 

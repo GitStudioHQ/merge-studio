@@ -83,13 +83,27 @@ export function rewritableChain(
   return { shas, stop: base === undefined ? "root" : "published", base };
 }
 
+/**
+ * The published-history warning, for whichever verb is about to rewrite a
+ * pushed commit — "Reordering" on the drag's hover, "Dropping" in Drop
+ * Commit's confirmation (issue #32). One sentence, so the two doors cannot
+ * drift into describing the same risk two different ways.
+ */
+export function publishedWarning(verbing: string, n = 1): string {
+  // Several commits (issue #32) are "them", and not necessarily all pushed:
+  // "published" there means the oldest is, and so everything below it.
+  return n > 1
+    ? `Some of these commits are already pushed. ${verbing} them would rewrite history other people have.`
+    : `Already pushed. ${verbing} it would rewrite history other people have.`;
+}
+
 /** Human wording for why a row cannot be dragged. Shown on hover, not in a dialog. */
 export function stopReason(stop: ChainStop): string {
   switch (stop) {
     case "merge":
       return "Reordering stops at a merge — moving a commit past one would flatten it.";
     case "published":
-      return "Already pushed. Reordering it would rewrite history other people have.";
+      return publishedWarning("Reordering");
     default:
       return "The first commit — there is nothing below it to reorder past.";
   }

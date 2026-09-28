@@ -73,6 +73,19 @@ import {
 } from "./refFilter";
 import { chipRefs, presetRefs, sameRefFilter } from "@gitstudio/host-bridge/graphRefFilter";
 import { COLUMN_DROP_TAIL_AT, INLINE_LIST_BELOW } from "../limits";
+import {
+  NO_SELECTION,
+  clickSelect,
+  collapse,
+  contextSelect,
+  inOrder,
+  isMany,
+  moveTo,
+  only,
+  reconcile,
+  sameRows,
+  type Selection,
+} from "./multiSelect";
 
 // ── Layout constants (the visual contract; tuned to GitLens proportions) ─────
 const ROW_HEIGHT = 34;
@@ -156,6 +169,9 @@ const CTX_MENU_W = 240;
  */
 /** The all-zeros sha marks the synthetic "uncommitted changes" (WIP) node. */
 const ZERO_SHA_RE = /^0{40}$/;
+/** Only commits share a selection of several — no action takes the WIP node
+ *  along with them (issue #32). It is still selectable on its own. */
+const canJoin = (sha: string): boolean => !ZERO_SHA_RE.test(sha);
 
 // ── Resizable / toggleable columns ───────────────────────────────────────────
 // The row + colhead grids share a set of CSS custom properties on :host, so a
@@ -211,14 +227,23 @@ const LS_COL_HIDDEN = "gitstudio.graph.cols.hidden";
 export type GraphAction =
   | { type: "select"; sha: string }
   /**
+   * The selection is now several commits, or none (issue #32) — Cmd/Ctrl-click,
+   * Shift-click, Shift+arrows. Newest first, as the list shows them. One
+   * selected commit is still `select`.
+   */
+  | { type: "selection"; shas: string[] }
+  /**
    * The row that is ALREADY selected was clicked again. Nothing about the
    * selection changed, so there is nothing to fetch — it only means "show me
    * this", which is how a closed details dock gets reopened with the mouse.
    */
   | { type: "showDetails"; sha: string }
   | { type: "open"; sha: string }
-  | { type: "context"; sha: string; x: number; y: number }
-  | { type: "menuAction"; sha: string; id: string }
+  /** The commit menu, for `sha` — or, with `shas`, for the selection of
+   *  several it is part of (newest first). */
+  | { type: "context"; sha: string; shas?: string[]; x: number; y: number }
+  /** An item of that menu; `shas` when the menu was for several commits. */
+  | { type: "menuAction"; sha: string; shas?: string[]; id: string }
   /** A ref chip (branch / remote / tag label) was clicked — a host with a
    *  page for the ref navigates there (the desktop's Branches view); one with
    *  none opens the chip's own menu at (x, y) through openRefMenu (the
@@ -661,13 +686,14 @@ export class CommitGraph extends LitElement {
     }
     .gh-preset:hover { background: var(--gs-hover); }
     .gh-preset:focus-visible { outline: 1px solid var(--gs-accent); outline-offset: 1px; }
-    /* The same wash the scoped trigger and the current-branch pill wear — and
-       the menu's own ink on it, not the accent's. Link-blue on a violet wash
-       read 3.34:1 in light (link-blue on the bare light menu is only 4.40:1);
-       the wash and its border say "active" on their own. */
+    /* Lit, never outlined: the selected tint and its soft glow, with the
+       same neutral edge as the idle presets beside it. It used to add an
+       accent border, which is the line the owner's rule bans. The menu's own
+       ink goes on it, not the accent's: link-blue on a violet wash read
+       3.34:1 in light (on the bare light menu it is only 4.40:1). */
     .gh-preset.active {
-      background: color-mix(in srgb, var(--gs-accent) 22%, transparent);
-      border-color: color-mix(in srgb, var(--gs-accent) 30%, transparent);
+      background: var(--gs-sel-fill);
+      box-shadow: var(--gs-sel-glow-soft);
     }
     .gh-preset[disabled] { opacity: 0.5; cursor: default; }
     .gh-preset[disabled]:hover { background: transparent; }
@@ -711,16 +737,32 @@ export class CommitGraph extends LitElement {
     .gh-menuitem:hover .gh-ref-cur,
     .gh-menuitem:focus-visible .gh-ref-cur { color: inherit; opacity: 0.8; }
 
-    /* Search highlight: matches glow, the rest recede. */
-    .row.is-match {
-      background: color-mix(in srgb, var(--vscode-charts-yellow, #e2c08d) 12%, transparent);
-      box-shadow: inset 2px 0 0 var(--vscode-charts-yellow, #e2c08d);
+    /* Search highlight: matches are washed in a soft yellow and the rest
+       recede. There is no bar down the edge; a match is a highlight, and the
+       owner's rule covers matched rows as well as selected ones. A SELECTED
+       match keeps the selection's fill (.row.selected.is-match below); the
+       :where() keeps these at the specificity they had, so hover still
+       wins over the wash. */
+    .row.is-match:where(:not(.selected)) {
+      background: color-mix(in srgb, var(--vscode-charts-yellow, #e2c08d) 16%, transparent);
     }
-    .row.is-nomatch .subject,
-    .row.is-nomatch .refs,
-    .row.is-nomatch .changes,
-    .row.is-nomatch .meta { opacity: 0.4; }
-    .row.is-nomatch .avatar { opacity: 0.45; }
+    /* On the wash the muted words take the foreground's ink: Dark+'s
+       secondary text read 4.37:1 on it, the SHA 3.95:1 and the desktop's
+       "+1" chip 3.90:1. A match reads at full strength anyway, beside the
+       rows that recede. */
+    .row.is-match:where(:not(.selected)) .meta,
+    .row.is-match:where(:not(.selected)) .changes,
+    .row.is-match:where(:not(.selected)) .sha,
+    .row.is-match:where(:not(.selected)) .chip-overflow {
+      color: var(--vscode-foreground);
+    }
+    /* The rows a search does not match recede, but never a SELECTED one:
+       the commit you picked stays readable while you search. */
+    .row.is-nomatch:where(:not(.selected)) .subject,
+    .row.is-nomatch:where(:not(.selected)) .refs,
+    .row.is-nomatch:where(:not(.selected)) .changes,
+    .row.is-nomatch:where(:not(.selected)) .meta { opacity: 0.4; }
+    .row.is-nomatch:where(:not(.selected)) .avatar { opacity: 0.45; }
 
     @container (max-width: 560px) {
       .gh-search { min-width: 130px; flex-basis: 200px; }
@@ -996,8 +1038,8 @@ export class CommitGraph extends LitElement {
       align-items: stretch;
       height: 26px;
       padding-right: 12px;
-      /* Mirror the rows' selection border so header cells sit exactly over
-         their column content. */
+      /* Mirror the rows' transparent spacer border so header cells sit
+         exactly over their column content. */
       border-left: 2px solid transparent;
       border-bottom: 1px solid color-mix(in srgb, var(--vscode-foreground) 12%, transparent);
       background: color-mix(in srgb, var(--vscode-foreground) 2%, var(--vscode-editor-background));
@@ -1076,7 +1118,7 @@ export class CommitGraph extends LitElement {
     .col-resize.dragging::after {
       width: 2px;
       height: 100%;
-      background: var(--vscode-focusBorder);
+      background: var(--gs-accent);
     }
     .col-resize:focus-visible {
       outline: 1px solid var(--vscode-focusBorder);
@@ -1205,6 +1247,8 @@ export class CommitGraph extends LitElement {
       padding-right: 12px;
       cursor: default;
       user-select: none;
+      /* A spacer the header mirrors (.colhead), so header cells sit over
+         their columns. It is never coloured: nothing here draws a bar. */
       border-left: 2px solid transparent;
       --gs-graph-node-hole: var(--vscode-editor-background, #1e1e1e);
       will-change: transform;
@@ -1214,16 +1258,64 @@ export class CommitGraph extends LitElement {
       --gs-graph-node-hole: var(--vscode-list-hoverBackground,
         var(--vscode-editor-background));
     }
+    /* Lit, never barred. Selected rows share the selection fill. The
+       FOCUSED row is the keyboard's cursor and what Enter opens; it is lit,
+       with more of the accent mixed into that same fill. It used to wear a
+       2px accent bar down its left edge, which is the line the owner's rule
+       bans. With one row selected, that row is both. With several (issue
+       #32), the lit row is the cursor. A Cmd-click that deselects the row
+       under the cursor leaves a faint accent wash on it and nothing else.
+       --gs-row-fill is the row's fill, so the avatar's hole ring and the
+       node's hole stay the colour of the row they sit in. */
     .row.selected {
-      background: var(--vscode-list-activeSelectionBackground);
+      --gs-row-fill: var(--vscode-list-activeSelectionBackground);
+      background: var(--gs-row-fill);
       color: var(--vscode-list-activeSelectionForeground, inherit);
-      border-left-color: var(--vscode-focusBorder, var(--vscode-list-focusOutline,
-        #007fd4));
-      --gs-graph-node-hole: var(--vscode-list-activeSelectionBackground,
-        var(--vscode-editor-background));
+      --gs-graph-node-hole: var(--gs-row-fill, var(--vscode-editor-background));
     }
+    .row.selected.focused {
+      --gs-row-fill: color-mix(in srgb, var(--gs-accent) 28%,
+        var(--vscode-list-activeSelectionBackground));
+    }
+    .row.focused:not(.selected):not(:hover) {
+      background: color-mix(in srgb, var(--gs-accent) 10%, transparent);
+      --gs-graph-node-hole: color-mix(in srgb, var(--gs-accent) 10%,
+        var(--vscode-editor-background, #1e1e1e));
+    }
+    /* A selected commit that is also a search match stays selected: the
+       selection's own fill, with a little of the match's yellow mixed in so
+       it still reads as a match. Never the match wash alone (the rail's
+       did that once and hid the selection). */
+    .row.selected.is-match {
+      --gs-row-fill: color-mix(in srgb, var(--vscode-charts-yellow, #e2c08d) 14%,
+        var(--vscode-list-activeSelectionBackground));
+    }
+    .row.selected.focused.is-match {
+      --gs-row-fill: color-mix(in srgb, var(--vscode-charts-yellow, #e2c08d) 14%,
+        color-mix(in srgb, var(--gs-accent) 28%, var(--vscode-list-activeSelectionBackground)));
+    }
+    /* Words on a lit row take full ink. Light+'s secondary text read 4.35:1
+       on the cursor's wash and the SHA 2.83:1. The selection foreground at
+       85% read 4.14:1 on the cursor's brighter fill. */
+    .row.focused:not(.selected) .meta,
+    .row.focused:not(.selected) .changes,
+    .row.focused:not(.selected) .sha {
+      color: var(--vscode-foreground);
+    }
+    .row.selected.focused .meta { opacity: 1; }
     .row.selected:hover {
-      background: var(--vscode-list-activeSelectionBackground);
+      background: var(--gs-row-fill);
+    }
+    /* High contrast paints no selection fill. VS Code draws a selection there
+       as a whole dashed ring in contrastActiveBorder, and the cursor as a
+       solid one. That is a full ring, never a side. */
+    :host-context(body.vscode-high-contrast) .row.selected,
+    :host-context(body.vscode-high-contrast) .row.focused {
+      outline: 1px dashed var(--vscode-contrastActiveBorder, var(--vscode-focusBorder));
+      outline-offset: -1px;
+    }
+    :host-context(body.vscode-high-contrast) .row.selected.focused {
+      outline-style: solid;
     }
 
     /* ── Author avatar — sits ON the commit node (GitKraken-style) ──────── */
@@ -1249,7 +1341,7 @@ export class CommitGraph extends LitElement {
     .row.selected .avatar {
       box-shadow:
         0 0 0 1.5px var(--gs-av-ring, var(--vscode-focusBorder)),
-        0 0 0 3px var(--vscode-list-activeSelectionBackground, var(--gs-graph-node-hole));
+        0 0 0 3px var(--gs-graph-node-hole);
     }
     .avatar img {
       /* Positioned so it paints ABOVE the absolutely-positioned initials
@@ -1409,7 +1501,7 @@ export class CommitGraph extends LitElement {
         var(--vscode-textLink-foreground, var(--vscode-focusBorder)) 88%, var(--vscode-foreground));
       border-color: transparent;
       background: color-mix(in srgb,
-        var(--vscode-focusBorder) 13%, var(--vscode-editor-background));
+        var(--gs-accent) 13%, var(--vscode-editor-background));
     }
     .chip-head .ico { color: inherit; }
     /* remote = the quietest kind. It is context ("this also exists upstream"),
@@ -1460,15 +1552,22 @@ export class CommitGraph extends LitElement {
       background: color-mix(in srgb, var(--vscode-foreground) 12%, transparent);
       border-radius: 3px;
     }
-    /* On a selected (accent-filled) row, lift chip contrast a touch so the
-       tinted fills don't muddy against the active-selection background. */
+    /* On a selected (accent-filled) row the chips sit on a layer of the
+       editor's own ground, so their inks read as they do on a plain row. At
+       78% the selection showed through enough to take them under AA in
+       Light+ (the branch name 4.16:1, "+3" 4.41:1); at 90% they clear it. */
     .row.selected .chip-head,
     .row.selected .chip-remote,
     .row.selected .chip-tag,
     .row.selected .chip-overflow {
       background: color-mix(in srgb,
-        var(--vscode-editor-background) 78%, transparent);
+        var(--vscode-editor-background) 90%, transparent);
     }
+    /* The "+N" count on a lit row takes the foreground: the secondary ink
+       read 4.29:1 on the lit cursor in the desktop's light theme, and 3.98:1
+       on the cursor's row under the pointer in Light+. */
+    .row.selected .chip-overflow,
+    .row.focused:where(:not(.selected)) .chip-overflow { color: var(--vscode-foreground); }
 
     .subject {
       min-width: 0;
@@ -1597,6 +1696,11 @@ export class CommitGraph extends LitElement {
       color: inherit;
       opacity: 0.85;
     }
+    /* The file count takes the selection's ink too: the muted count read
+       3.6:1 on the desktop's selection and 2.65:1 on its lit cursor. */
+    .row.selected .changes {
+      color: inherit;
+    }
     .row.selected .sha { opacity: 1; }
 
     /* Lane focus (engaged only while hovering the gutter — see onPointerMove):
@@ -1684,7 +1788,9 @@ export class CommitGraph extends LitElement {
   /** Whether more pages remain to be loaded on scroll. */
   declare hasMore: boolean;
   /** Lifecycle phase for the placeholder states. */
-  declare status: "loading" | "ready" | "empty" | "error";
+  /** "no-repo": no repository is open (GraphInitMessage.noRepo) — not an empty history.
+   *  "discovering": none YET — the host is still looking (GraphInitMessage.discovering). */
+  declare status: "loading" | "ready" | "empty" | "error" | "no-repo" | "discovering";
   /** Message for the error placeholder — a git failure, NOT an empty repo
       (an empty/fresh repo stays in the "empty" state with its own guidance). */
   declare errorMessage: string;
@@ -1699,7 +1805,14 @@ export class CommitGraph extends LitElement {
   declare refList: GraphRefEntry[];
 
   private declare palette: readonly string[];
+  /**
+   * The FOCUSED row: the keyboard's cursor, what Enter opens and what
+   * `aria-activedescendant` names. With one row selected it is that row.
+   */
   private declare selectedSha: string | undefined;
+  /** Which rows are selected, and the anchor a Shift-range grows from
+   *  (issue #32 — see multiSelect.ts). Its `focus` is `selectedSha`. */
+  private sel: Selection = NO_SELECTION;
   private declare searchQuery: string;
   /** What the search query is scoped to match against. */
   private declare searchScope: SearchScope;
@@ -1712,11 +1825,23 @@ export class CommitGraph extends LitElement {
   /** The open in-graph commit actions popover, or null. Positioned at (x,y). */
   private declare commitMenu: {
     sha: string;
+    /** A menu for several commits (issue #32): handed back with the pick. */
+    shas?: string[];
     x: number;
     y: number;
     title: string;
     items: CommitMenuItem[];
+    /** Opened from the keyboard: focus its first item once it renders, so
+     *  the arrows walk the menu rather than the list under it. */
+    focusFirst?: boolean;
   } | null;
+  /**
+   * The next commit menu the host sends answers the keyboard's menu key
+   * (Shift+F10 / ContextMenu), not a pointer. The key's request carries the
+   * focused row's position like a right-click's does — the desktop places
+   * its own menu there — so the position cannot say which it was.
+   */
+  private menuByKeyboard = false;
   /**
    * A ref chip's own menu (right-click or ⌥-click on a chip): the filter
    * shortcuts — show only this branch, add it, remove it — and the checkout
@@ -1841,6 +1966,17 @@ export class CommitGraph extends LitElement {
     | undefined;
   /** The scroll element the live virtualizer is bound to (identity check). */
   private boundScroller: HTMLDivElement | undefined;
+  /**
+   * Where the list was scrolled, kept while the element is attached. A node
+   * taken out of the document loses its scroll offset, and the desktop takes
+   * this element out whenever it parks the graph (a view switch) or its
+   * repository tab goes to the back (#32) — so without this, coming back put
+   * you at the top of the history, with the commit you were on scrolled away.
+   * Read on every scroll, because a detached scroller already reads 0.
+   */
+  private keptScrollTop = 0;
+  /** Put `keptScrollTop` back once the re-attached list has rows to scroll. */
+  private restoreScrollPending = false;
   private cleanupVirtualizer: (() => void) | undefined;
   private disposeTheme: (() => void) | undefined;
   private shaToIndex = new Map<string, number>();
@@ -1891,6 +2027,8 @@ export class CommitGraph extends LitElement {
     // the window you last looked at, still at their old offsets, and nothing
     // ever repainting them. Scrolled down first, that is a blank list.
     this.requestUpdate();
+    // A RE-attach (see keptScrollTop): the first connect has nothing to keep.
+    this.restoreScrollPending = this.keptScrollTop > 0;
     this.disposeTheme = observeGraphTheme((palette) => {
       this.palette = palette;
       this.renderRows();
@@ -1984,6 +2122,14 @@ export class CommitGraph extends LitElement {
       const menu = this.renderRoot.querySelector<HTMLElement>(".gh-chip-menu");
       (menu?.querySelector<HTMLElement>(".gh-menuitem:not([disabled])") ?? menu)?.focus();
     }
+    // …and so does the commit menu the menu key opened (issue #32). Left on
+    // the list, ↓ moved and collapsed the selection under a "3 commits
+    // selected" menu that stayed open — and a pick then acted on three
+    // commits the list no longer showed as selected.
+    if (changed.has("commitMenu") && this.commitMenu?.focusFirst) {
+      const menu = this.renderRoot.querySelector<HTMLElement>(".gh-commit-menu");
+      (menu?.querySelector<HTMLElement>(".gh-menuitem:not([disabled])") ?? menu)?.focus();
+    }
     // …and on the side of its trigger that has the room — every update while
     // open, because a tick widens the trigger's label and moves its edges.
     // Once more a tick later: in a pane too narrow for its header the header
@@ -2007,10 +2153,23 @@ export class CommitGraph extends LitElement {
       }
       this.applyGutterWidth();
       this.renderRows();
+      this.restoreKeptScroll(scroller);
     } else {
       // Back to a placeholder: drop the stale virtualizer binding.
       this.teardownVirtualizer();
     }
+  }
+
+  /** After a re-attach, back to where the list was — once the sizer is tall
+   *  enough to hold the offset, and told to the virtualizer at once (its
+   *  scroll events arrive a frame later, and never in an occluded window). */
+  private restoreKeptScroll(scroller: HTMLDivElement): void {
+    if (!this.restoreScrollPending || !this.rows.length) return;
+    this.restoreScrollPending = false;
+    const want = Math.min(this.keptScrollTop, Math.max(0, scroller.scrollHeight - scroller.clientHeight));
+    if (want <= 0 || scroller.scrollTop === want) return;
+    scroller.scrollTop = want;
+    scroller.dispatchEvent(new Event("scroll"));
   }
 
   // ── Virtualizer wiring ─────────────────────────────────────────────────────
@@ -2035,7 +2194,17 @@ export class CommitGraph extends LitElement {
       this.virtualizerOptions(),
     );
     this.virtualizer = v;
-    this.cleanupVirtualizer = v._didMount();
+    const unmount = v._didMount();
+    // Only while attached: a detached scroller fires nothing, so the last
+    // offset read is the one it had when it was taken out.
+    const keep = (): void => {
+      if (this.isConnected) this.keptScrollTop = scroller.scrollTop;
+    };
+    scroller.addEventListener("scroll", keep, { passive: true });
+    this.cleanupVirtualizer = () => {
+      scroller.removeEventListener("scroll", keep);
+      unmount();
+    };
     v._willUpdate();
   }
 
@@ -2050,6 +2219,22 @@ export class CommitGraph extends LitElement {
     if (!s || s.scrollTop === 0) return;
     s.scrollTop = 0;
     s.dispatchEvent(new Event("scroll"));
+  }
+
+  /**
+   * Scroll to a row, and tell the virtualizer at once — the same reason as
+   * scrollToTop: after a bare scrollToIndex the paint that follows drew the
+   * OLD window at the new offset, and a jump far down the list (a reveal,
+   * End) left the row it jumped to out of the DOM until the browser's scroll
+   * event came, a frame later or, occluded, not at all. The rail's twin.
+   */
+  private scrollToRow(index: number, align: "auto" | "center"): void {
+    const v = this.virtualizer;
+    if (!v) return;
+    const s = this.boundScroller;
+    const from = s?.scrollTop;
+    v.scrollToIndex(index, { align });
+    if (s && s.scrollTop !== from) s.dispatchEvent(new Event("scroll"));
   }
 
   private teardownVirtualizer(): void {
@@ -2070,9 +2255,34 @@ export class CommitGraph extends LitElement {
     // simply gone: no `.row.selected` anywhere in the DOM, `selectedSha` still
     // set, and `aria-activedescendant` pointing at an id that does not exist —
     // which a screen reader announces as a row that is not there.
-    if (this.selectedSha !== undefined && !this.shaToIndex.has(this.selectedSha)) {
-      this.selectedSha = undefined;
+    //
+    // A selection of SEVERAL (issue #32) is reconciled the same way, and the
+    // host is told when it changed: a drop or a squash gives the rewritten
+    // commits new shas, and a "3 commits selected" summary still listing the
+    // old ones would offer actions on commits that no longer exist.
+    const prev = this.sel;
+    const next = reconcile(prev, this.rows.map((r) => r.sha));
+    if (next !== prev) {
+      this.sel = next;
+      this.selectedSha = next.focus;
+      if (isMany(prev) && !sameRows(prev, next)) this.announce(next);
     }
+  }
+
+  /** The selected commits, newest first as the list shows them (issue #32). */
+  get selectedShas(): string[] {
+    return inOrder(this.sel, this.rows.map((r) => r.sha));
+  }
+
+  /** The loaded rows for these shas, in the order given — what a host needs
+   *  to name a selection ("3 commits selected") without a round trip. */
+  rowsFor(shas: readonly string[]): WireRow[] {
+    const out: WireRow[] = [];
+    for (const sha of shas) {
+      const i = this.shaToIndex.get(sha);
+      if (i !== undefined && this.rows[i]) out.push(this.rows[i]);
+    }
+    return out;
   }
 
   /** Gutter render width: capped columns × pitch + inset + avatar half-width. */
@@ -2628,6 +2838,8 @@ export class CommitGraph extends LitElement {
     y: number,
     title: string,
     items: CommitMenuItem[],
+    /** A menu for several commits (issue #32), newest first. */
+    shas?: string[],
   ): void {
     this.columnsOpen = false;
     this.scopeOpen = false;
@@ -2636,12 +2848,25 @@ export class CommitGraph extends LitElement {
     let px = x;
     let py = y;
     if (x < 0 || y < 0) {
-      const row = this.renderRoot.querySelector<HTMLElement>(".row.selected");
+      // Under the FOCUSED row: with several selected, every one of them is
+      // `.selected`, and the first in the DOM is not the one the keyboard is on.
+      const row = this.renderRoot.querySelector<HTMLElement>(".row.focused");
       const r = row?.getBoundingClientRect();
       px = r ? r.left + 24 : window.innerWidth / 2;
       py = r ? r.bottom : window.innerHeight / 2;
     }
-    this.commitMenu = { sha, x: px, y: py, title, items };
+    // x < 0 is the host's own keyboard door (its "action" message).
+    const focusFirst = this.menuByKeyboard || x < 0 || y < 0;
+    this.menuByKeyboard = false;
+    this.commitMenu = {
+      sha,
+      ...(shas && shas.length > 1 ? { shas } : {}),
+      x: px,
+      y: py,
+      title,
+      items,
+      ...(focusFirst ? { focusFirst } : {}),
+    };
   }
 
   /** Attach/detach the document click-outside/Escape listeners as popovers
@@ -3083,7 +3308,8 @@ export class CommitGraph extends LitElement {
     if (!row) {
       return "";
     }
-    const selected = row.sha === this.selectedSha;
+    const selected = this.sel.selected.has(row.sha);
+    const focused = row.sha === this.selectedSha;
     const focusOn =
       this.focusColor === undefined || row.color === this.focusColor;
     const searching = this.searchQuery.trim().length > 0;
@@ -3095,6 +3321,7 @@ export class CommitGraph extends LitElement {
     const cls =
       "row" +
       (selected ? " selected" : "") +
+      (focused ? " focused" : "") +
       (focusOn ? " focus-on" : "") +
       (isWip ? " is-wip" : "") +
       (canReorder ? " can-reorder" : "") +
@@ -3313,17 +3540,71 @@ export class CommitGraph extends LitElement {
     if (!sha) {
       return;
     }
+    // Cmd/Ctrl adds or removes the row, Shift selects from the anchor
+    // (issue #32 — multiSelect.ts has the whole table).
+    if (e.shiftKey || e.metaKey || e.ctrlKey) {
+      this.setSelection(clickSelect(this.sel, this.order(), sha, e, canJoin));
+      return;
+    }
     // Re-clicking the selected row: select() would early-return and emit
     // nothing, so a details dock the user had closed stayed closed no matter how
     // many times they clicked the commit they wanted (issue #4). Say "show it"
     // instead of forcing a re-select — a re-select would re-fetch the commit and
-    // tear down the diff tab the user has open.
-    if (this.selectedSha === sha) {
+    // tear down the diff tab the user has open. Only when it is the ONLY one
+    // selected: clicking one row of several selects just that row.
+    if (this.selectedSha === sha && this.sel.selected.size === 1 && this.sel.selected.has(sha)) {
       this.onAction({ type: "showDetails", sha });
       return;
     }
     this.select(sha, false);
   };
+
+  /** Every loaded row's sha, in list order — what a Shift-range spans. */
+  private order(): string[] {
+    return this.rows.map((r) => r.sha);
+  }
+
+  /**
+   * Apply a multi-select gesture's result (issue #32): repaint, move the
+   * cursor, and tell the host what is selected now — `select` when that is
+   * one commit (its details, as ever), `selection` for several or none (the
+   * "N commits selected" summary).
+   */
+  private setSelection(next: Selection, scroll = false): void {
+    const focus = next.focus;
+    // One row, and the cursor on it: the classic selection, the classic path.
+    if (focus !== undefined && next.selected.size === 1 && next.selected.has(focus)) {
+      this.select(focus, scroll, next);
+      return;
+    }
+    const prev = this.sel;
+    this.sel = next;
+    const moved = this.selectedSha !== focus;
+    this.selectedSha = focus;
+    if (scroll && focus !== undefined) {
+      // scrollToRow, as select() does: a Shift+End far down the list paints
+      // the rows it lands on, not the old window at the new offset.
+      const idx = this.shaToIndex.get(focus);
+      if (idx !== undefined) this.scrollToRow(idx, "auto");
+    }
+    // A cursor that did not move changes no reactive property, so nothing
+    // else would repaint the rows whose selection just changed.
+    if (!moved) this.renderRows();
+    if (!sameRows(prev, next)) this.announce(next);
+  }
+
+  /**
+   * Tell the host what is selected after it changed: one commit is `select`
+   * (its details — also when a Cmd-click left the cursor on another row),
+   * several or none is `selection`.
+   */
+  private announce(s: Selection): void {
+    if (s.selected.size === 1) {
+      this.onAction({ type: "select", sha: [...s.selected][0] });
+    } else {
+      this.onAction({ type: "selection", shas: this.selectedShas });
+    }
+  }
 
   private onDblClick = (e: MouseEvent): void => {
     const sha = this.rowShaFromEvent(e);
@@ -3333,6 +3614,7 @@ export class CommitGraph extends LitElement {
     // Double-click opens the in-graph actions popover (same as right-click), so
     // every sidebar tab behaves the same — no native quick-pick.
     e.preventDefault();
+    this.menuByKeyboard = false;
     this.select(sha, false);
     this.onAction({ type: "context", sha, x: e.clientX, y: e.clientY });
   };
@@ -3351,9 +3633,26 @@ export class CommitGraph extends LitElement {
       return;
     }
     e.preventDefault();
-    this.select(sha, false);
-    this.onAction({ type: "context", sha, x: e.clientX, y: e.clientY });
+    this.menuByKeyboard = false;
+    this.openMenuFor(sha, e.clientX, e.clientY);
   };
+
+  /**
+   * The commit menu for a right-click (or the keyboard's menu key) on `sha`:
+   * inside a selection of several it is for ALL of them and the selection
+   * stays; anywhere else that row is selected alone and the menu is its own —
+   * VS Code's and JetBrains' behaviour (issue #32).
+   */
+  private openMenuFor(sha: string, x: number, y: number): void {
+    const next = contextSelect(this.sel, sha);
+    if (isMany(next)) {
+      this.setSelection(next);
+      this.onAction({ type: "context", sha, shas: this.selectedShas, x, y });
+      return;
+    }
+    this.select(sha, false);
+    this.onAction({ type: "context", sha, x, y });
+  }
 
   private onPointerMove = (e: PointerEvent): void => {
     // Lane focus is a deliberate affordance: only engage while the pointer is
@@ -3429,7 +3728,8 @@ export class CommitGraph extends LitElement {
    * the drag never starts unless the pointer actually travels.
    */
   private onRowPointerDown = (e: PointerEvent): void => {
-    if (e.button !== 0 || this.chainShas.length < 2) return;
+    // A modified press is a selection gesture (issue #32), never a drag.
+    if (e.button !== 0 || e.shiftKey || e.metaKey || e.ctrlKey || this.chainShas.length < 2) return;
     const target = e.composedPath()[0] as HTMLElement | null;
     // Never hijack a control: the sha copy cell, a ref chip, the action menu.
     if (target?.closest?.("[data-sha-cell],[data-more],.chip,button")) return;
@@ -3617,28 +3917,67 @@ export class CommitGraph extends LitElement {
     const plain = !e.metaKey && !e.ctrlKey && !e.altKey;
     const down = e.key === "ArrowDown" || (plain && !typing && e.key === "j");
     const up = e.key === "ArrowUp" || (plain && !typing && e.key === "k");
+    // Shift with a move extends the selection from its anchor (issue #32).
+    const go = (sha: string): void => {
+      if (e.shiftKey && !typing) {
+        this.setSelection(moveTo(this.sel, this.order(), sha, true, canJoin), true);
+      } else {
+        this.select(sha, true);
+      }
+    };
     if (down || up) {
       e.preventDefault();
       const delta = down ? 1 : -1;
       const base = current ?? (delta > 0 ? -1 : this.rows.length);
       const next = Math.max(0, Math.min(this.rows.length - 1, base + delta));
-      this.select(this.rows[next].sha, true);
+      go(this.rows[next].sha);
     } else if (e.key === "Home") {
       e.preventDefault();
-      this.select(this.rows[0].sha, true);
+      go(this.rows[0].sha);
     } else if (e.key === "End") {
       e.preventDefault();
-      this.select(this.rows[this.rows.length - 1].sha, true);
+      go(this.rows[this.rows.length - 1].sha);
     } else if (e.key === "Enter" && this.selectedSha) {
       e.preventDefault();
+      if (isMany(this.sel)) {
+        // Enter opens the row the keyboard is on — alone (issue #32). Opened
+        // with the rest still selected, the host showed that one commit's
+        // details beside a list showing several: one commit standing in for
+        // all of them. Collapsing says "select" for it, which is what "open"
+        // does in both hosts (its details, the dock open) — both would ask
+        // for the same commit twice.
+        this.setSelection(collapse(this.sel));
+        return;
+      }
       this.onAction({ type: "open", sha: this.selectedSha });
+    } else if (e.key === "Escape" && !typing && isMany(this.sel)) {
+      // Several selected: Escape keeps only the focused row. This Escape is
+      // spent here — the host's own (closing the details dock) must not also
+      // fire on the same press.
+      e.preventDefault();
+      e.stopPropagation();
+      this.setSelection(collapse(this.sel));
+    } else if (!typing && (e.key === "ContextMenu" || (e.key === "F10" && e.shiftKey)) && this.selectedSha) {
+      // The keyboard's menu key: the same menu a right-click on the focused
+      // row opens, under that row — and, in this element, with the keyboard.
+      e.preventDefault();
+      this.menuByKeyboard = true;
+      const r = this.rowElementFor(this.selectedSha)?.getBoundingClientRect();
+      this.openMenuFor(this.selectedSha, r ? Math.round(r.left + 24) : -1, r ? Math.round(r.bottom) : -1);
     }
   };
 
-  private select(sha: string, scrollIntoView: boolean): void {
-    if (this.selectedSha === sha && !scrollIntoView) {
+  /**
+   * Select just `sha` — `next` carries the anchor a multi-select gesture that
+   * ended on one row left behind (defaults to `sha` itself).
+   */
+  private select(sha: string, scrollIntoView: boolean, next: Selection = only(sha)): void {
+    const onlyThis = this.sel.selected.size === 1 && this.sel.selected.has(sha);
+    if (this.selectedSha === sha && onlyThis && !scrollIntoView) {
+      this.sel = next;
       return;
     }
+    this.sel = next;
     // `selectedSha` is reactive, so assigning it already schedules a render —
     // and this method then painted the window a second time by hand. Every
     // keypress and every click therefore rebuilt the whole visible window
@@ -3654,9 +3993,7 @@ export class CommitGraph extends LitElement {
     this.onAction({ type: "select", sha });
     if (scrollIntoView) {
       const idx = this.shaToIndex.get(sha);
-      if (idx !== undefined && this.virtualizer) {
-        this.virtualizer.scrollToIndex(idx, { align: "auto" });
-      }
+      if (idx !== undefined) this.scrollToRow(idx, "auto");
     }
     if (!changed) {
       this.renderRows();
@@ -3676,8 +4013,9 @@ export class CommitGraph extends LitElement {
     if (idx === undefined) {
       return false;
     }
+    this.sel = only(sha);
     this.selectedSha = sha;
-    this.virtualizer?.scrollToIndex(idx, { align: "center" });
+    this.scrollToRow(idx, "center");
     this.renderRows();
     return true;
   }
@@ -3821,7 +4159,9 @@ export class CommitGraph extends LitElement {
 
   private headerHtml() {
     const branch = this.currentBranchName();
-    const n = this.rows.length;
+    // Commits only: the "Uncommitted changes" row the host puts on top of a
+    // dirty tree is not one, and counting it made 17 commits read "18".
+    const n = this.rows.reduce((k, r) => (ZERO_SHA_RE.test(r.sha) ? k : k + 1), 0);
     const count =
       n === 0
         ? ""
@@ -4233,6 +4573,21 @@ export class CommitGraph extends LitElement {
           </button>
         </div>${nothing}`;
     }
+    if (this.status === "no-repo") {
+      return html`${header}<div class="placeholder">
+          <span class="ph-icon codicon codicon-source-control"></span>
+          <div class="ph-title">No repository open</div>
+          <div class="ph-detail">Open a folder that's under Git and its history will appear here.</div>
+        </div>${nothing}`;
+    }
+    if (this.status === "discovering") {
+      // What the Changes view above says at the same moment — never "No
+      // repository open" while one may still be found.
+      return html`${header}<div class="placeholder" role="status">
+          <div class="spinner" aria-hidden="true"></div>
+          <div class="ph-title">Looking for a repository…</div>
+        </div>${nothing}`;
+    }
     if (this.status === "empty") {
       return html`${header}<div class="placeholder">
           <span class="ph-icon codicon codicon-git-commit"></span>
@@ -4251,6 +4606,7 @@ export class CommitGraph extends LitElement {
         tabindex="0"
         role="grid"
         aria-label="Commit graph"
+        aria-multiselectable="true"
         aria-rowcount=${this.rows.length}
         aria-activedescendant=${this.selectedSha ? `gs-row-${this.selectedSha}` : nothing}
         @click=${this.onClick}
@@ -4287,22 +4643,22 @@ export class CommitGraph extends LitElement {
     const top = Math.max(6, Math.min(m.y, window.innerHeight - H - 6));
     const pick = (id: string) => {
       const sha = m.sha;
+      const shas = m.shas;
       this.commitMenu = null;
       if (id) {
-        this.onAction({ type: "menuAction", sha, id });
+        this.onAction({ type: "menuAction", sha, ...(shas ? { shas } : {}), id });
       }
     };
+    // The popovers' keyboard: ↑/↓ walk the items, Escape closes and hands
+    // the keyboard back to the list (closeAndRefocus). This used to handle
+    // Escape alone, so a menu opened from the keyboard could only be left.
     return html`<div
-      class="gh-pop gh-ctx"
+      class="gh-pop gh-ctx gh-commit-menu"
       role="menu"
+      tabindex="-1"
+      aria-label=${m.title}
       style="left:${Math.round(left)}px;top:${Math.round(top)}px"
-      @keydown=${(e: KeyboardEvent) => {
-        if (e.key === "Escape") {
-          e.preventDefault();
-          e.stopPropagation();
-          this.commitMenu = null;
-        }
-      }}
+      @keydown=${this.onPopoverKeyDown}
     >
       <div class="gh-pop-title">${m.title}</div>
       ${m.items.map((it) =>
