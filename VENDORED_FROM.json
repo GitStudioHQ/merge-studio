@@ -3,7 +3,7 @@
   "note": "Written by gitstudio's scripts/merge-studio/export.mjs. Files under vendor/gitstudio are copies of GitStudio's shared code, and `npm run check-parity` reports any difference. A pull request may still change them: a maintainer imports it into gitstudio (scripts/merge-studio/import.mjs) and exports again.",
   "gitstudio": {
     "repository": "https://github.com/GitStudioHQ/gitstudio",
-    "sha": "b64e3a751e7f3cc5e7bed4f990ad0973723ba087",
+    "sha": "55c84b5b3c98b20ff1e81b10be961b1716c076e3",
     "dirty": false
   },
   "sources": [
@@ -194,7 +194,7 @@
     "vendor/gitstudio/webview-ui/src/limits.ts": "de85e68a1d9598d33a4e348e4a42ef0d9c46d82e188b6e30e26793f3c9ef7f5c",
     "vendor/gitstudio/webview-ui/src/lineEdits.ts": "71cba1f0fe558cc66c2ec59bd3e757f280720f24d5f910af95f3f9679f8ed368",
     "vendor/gitstudio/webview-ui/src/main.ts": "9eff8cb6543d5ae032fde8e7d9a4414ef35a289718949cdd92a2e7e3ae954364",
-    "vendor/gitstudio/webview-ui/src/markdown.ts": "9b6cc04747b6e3a80f251dc0b6f0c6ce375d3f0c6cd59a7230cfc741b38a0c9d",
+    "vendor/gitstudio/webview-ui/src/markdown.ts": "7a23bf7cdd2daf2e221afe5734189419ec62532b4db2653038e30bf2ec90c925",
     "vendor/gitstudio/webview-ui/src/mergeLegend.ts": "f51f12aa8065aca36427b2abf23bcf0229dd8d1563f7bd080377b17255887695",
     "vendor/gitstudio/webview-ui/src/mergeShell.ts": "939cbe2a10031a0cb53bd75f266bb34b7511edf3c2a3a03e21a17565069dcb30",
     "vendor/gitstudio/webview-ui/src/mergeView.ts": "a6a1e144ae6a00588885fa01b6c1dadcdb4e2398dab1cb41e9e1f0350c211ae4",
@@ -206,9 +206,9 @@
     "vendor/gitstudio/webview-ui/src/pr/create-main.ts": "f444d1c8948007f9f3b99e180471026bd74891c75375174618a927876e8a97a2",
     "vendor/gitstudio/webview-ui/src/pr/list-main.ts": "c25b28a0a21bf38674fd0f91357c304cbd2848440b2a31e43cb5d8adde363cbd",
     "vendor/gitstudio/webview-ui/src/pr/page-main.ts": "c3d2296310a42f1f48e8cf5455f114bd20123aaa7ec3ce518c853fd0d7cdb9d2",
-    "vendor/gitstudio/webview-ui/src/pr/prCreate.ts": "3714484bcdc18d1b456bfc7073de4a9f3a99d1ca8716a1dbf9f2272cd87a2d77",
-    "vendor/gitstudio/webview-ui/src/pr/prList.ts": "aa10d0571eb902fc289c2124c4278e5f0dfff526f8b730c6d3f8ae737d308dfb",
-    "vendor/gitstudio/webview-ui/src/pr/prPage.ts": "bded31942583e29a03207370e5474b526e7125e49976599ac663b9c3f03a8e16",
+    "vendor/gitstudio/webview-ui/src/pr/prCreate.ts": "b65f2149c526a70426e07aa0f63612540387218d8e55f2029640e6fb1d766e22",
+    "vendor/gitstudio/webview-ui/src/pr/prList.ts": "c26253f7c88740a52532d88aa7d061f6ffd92727a4f1c8ecef4e78d5492eb94b",
+    "vendor/gitstudio/webview-ui/src/pr/prPage.ts": "762411bb05786021ac4477cd27829069e4392b431ade30bdf401a583265b245a",
     "vendor/gitstudio/webview-ui/src/rebase/main.ts": "d39bd385e319783157842137bed5d6427ed40762236341d0f347c596c1a432df",
     "vendor/gitstudio/webview-ui/src/rebase/plan-global.ts": "1c29a986eb637ee8fddc4e05f04433c839486007b928ba3a104062cbb3472b92",
     "vendor/gitstudio/webview-ui/src/rebase/rebase-view.ts": "926c0ed4130ee442d89e6e591cfbb1a724b9157c909d24f2349500fd914de6e8",
