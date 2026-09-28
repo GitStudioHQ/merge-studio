@@ -4,6 +4,7 @@
 // deliberately has no docked details pane: activating a commit posts
 // `openInGraph`, which promotes it to the full Commit Graph panel.
 
+import { installSolidAccent } from "../styles/solidAccent";
 import "../styles/graph-sidebar.css";
 import "./commit-rail";
 import { applyGraphInitRefs } from "./graphInit";
@@ -12,6 +13,9 @@ import type {
   GraphHostMessage,
   GraphWebviewMessage,
 } from "@gitstudio/host-bridge/graphProtocol";
+
+// A see-through theme focus colour (Cursor Dark) gets an opaque accent.
+installSolidAccent();
 
 interface VsCodeApi {
   postMessage(message: GraphWebviewMessage): void;
@@ -41,6 +45,8 @@ function start(root: HTMLElement): void {
         vscode.postMessage({
           type: "contextMenu",
           sha: action.sha,
+          // A selection of several (issue #32): the menu is for all of them.
+          ...(action.shas ? { shas: action.shas } : {}),
           x: action.x,
           y: action.y,
         });
@@ -49,6 +55,7 @@ function start(root: HTMLElement): void {
         vscode.postMessage({
           type: "commitMenuAction",
           sha: action.sha,
+          ...(action.shas ? { shas: action.shas } : {}),
           id: action.id,
         });
         break;
@@ -85,7 +92,13 @@ function start(root: HTMLElement): void {
         rail.totalColumns = message.totalColumns;
         rail.hasMore = message.hasMore;
         applyGraphInitRefs(rail, message);
-        rail.status = message.rows.length === 0 ? "empty" : "ready";
+        rail.status = message.noRepo
+          ? "no-repo"
+          : message.discovering
+            ? "discovering"
+            : message.rows.length === 0
+              ? "empty"
+              : "ready";
         break;
       case "graphAppend":
         rail.rows = rail.rows.concat(message.rows);
@@ -105,6 +118,7 @@ function start(root: HTMLElement): void {
           message.y,
           message.title,
           message.items,
+          message.shas,
         );
         break;
       case "graphError":
@@ -118,6 +132,7 @@ function start(root: HTMLElement): void {
       // The sidebar renders no details dock or CHANGES bars — these host
       // pushes are for the editor-area graph.
       case "commitDetails":
+      case "commitsSummary":
       case "rowStats":
         break;
     }

@@ -69,6 +69,18 @@ import {
 } from "./refFilter";
 import { chipRefs, presetRefs, sameRefFilter } from "@gitstudio/host-bridge/graphRefFilter";
 import { chipLabel, foldRefs } from "./refLayout";
+import {
+  NO_SELECTION,
+  clickSelect,
+  collapse,
+  contextSelect,
+  inOrder,
+  isMany,
+  moveTo,
+  only,
+  reconcile,
+  type Selection,
+} from "./multiSelect";
 
 // ── Layout constants (the sidebar's visual contract) ────────────────────────
 const ROW_HEIGHT = 40;
@@ -103,11 +115,15 @@ const POP_MAX_W = 240;
 const popMaxWidth = (): number => Math.min(POP_MAX_W, window.innerWidth - 8);
 /** The all-zeros sha marks the synthetic "uncommitted changes" (WIP) row. */
 const ZERO_SHA_RE = /^0{40}$/;
+/** Only commits share a selection of several (issue #32) — as in the graph. */
+const canJoin = (sha: string): boolean => !ZERO_SHA_RE.test(sha);
 export type RailAction =
   /** Promote to the editor-area Commit Graph, revealed at this commit. */
   | { type: "open"; sha: string }
-  | { type: "context"; sha: string; x: number; y: number }
-  | { type: "menuAction"; sha: string; id: string }
+  /** The commit menu for `sha` — or, with `shas`, for the selection of
+   *  several it is part of (issue #32), newest first. */
+  | { type: "context"; sha: string; shas?: string[]; x: number; y: number }
+  | { type: "menuAction"; sha: string; shas?: string[]; id: string }
   | { type: "copy"; text: string }
   | { type: "loadMore" }
   | { type: "refresh" }
@@ -132,10 +148,14 @@ export interface RailMenuItem {
 
 interface RailMenu {
   sha: string;
+  /** A menu for several commits (issue #32): handed back with the pick. */
+  shas?: string[];
   x: number;
   y: number;
   title: string;
   items: RailMenuItem[];
+  /** Opened from the keyboard: its first item takes focus once it renders. */
+  focusFirst?: boolean;
 }
 
 /** A folded, render-ready ref chip (remote twins folded into their local). */
@@ -340,30 +360,78 @@ export class CommitRail extends LitElement {
         user-select: none;
         -webkit-user-select: none;
         --gs-graph-node-hole: var(--gs-bg);
-        content-visibility: auto;
+        /* No content-visibility: auto here. renderRows() builds every row
+           anew, and Chrome skips a fresh auto row's CONTENTS in hit testing
+           until a rendering update has found it on screen: until the next
+           frame, a click on a ref chip or a Copy/Open button landed on the
+           bare .row and selected it instead (the chip-click check failed
+           that way on a loaded CI runner). The virtualizer already keeps
+           the rows to the window and its overscan; there was nothing left
+           for it to skip. */
       }
       .row:hover {
         background: var(--gs-hover);
         --gs-graph-node-hole: var(--vscode-list-hoverBackground, var(--gs-bg));
       }
+      /* Lit, never barred, as in the graph. Selected rows share the
+         selection fill. The FOCUSED row is the keyboard's cursor: the
+         selected row when there is one, and the cursor among several (issue
+         #32). It is lit, with more of the accent mixed into that fill. It
+         used to carry a 2px ::before bar, which the owner's rule bans. A row
+         the cursor sits on after a Cmd-click deselected it keeps a faint
+         accent wash. --gs-row-fill is the row's fill, so the node's hole,
+         the avatar's ring and the actions' scrim follow it. */
       .row.selected {
-        background: var(--vscode-list-activeSelectionBackground);
-        --gs-graph-node-hole: var(--vscode-list-activeSelectionBackground, var(--gs-bg));
+        --gs-row-fill: var(--vscode-list-activeSelectionBackground);
+        background: var(--gs-row-fill);
+        --gs-graph-node-hole: var(--gs-row-fill, var(--gs-bg));
+      }
+      .row.selected.focused {
+        --gs-row-fill: color-mix(in srgb, var(--gs-accent) 28%,
+          var(--vscode-list-activeSelectionBackground));
+      }
+      .row.focused:not(.selected):not(:hover) {
+        background: color-mix(in srgb, var(--gs-accent) 10%, transparent);
+        --gs-graph-node-hole: color-mix(in srgb, var(--gs-accent) 10%, var(--gs-bg));
+      }
+      /* A selected commit that is also a search match (you clicked a
+         result) stays SELECTED: the selection's own fill, with a little of
+         the match's yellow mixed in so it still reads as a match. The match
+         wash used to be declared after .row.selected and replaced it, which
+         left the selection foreground (white) on pale yellow, 1.29:1 in
+         Light+. The wash and the current match's tint below apply only to
+         rows that are not selected. */
+      .row.selected.is-match {
+        --gs-row-fill: color-mix(in srgb, var(--vscode-charts-yellow, #e2c08d) 14%,
+          var(--vscode-list-activeSelectionBackground));
+      }
+      .row.selected.focused.is-match {
+        --gs-row-fill: color-mix(in srgb, var(--vscode-charts-yellow, #e2c08d) 14%,
+          color-mix(in srgb, var(--gs-accent) 28%, var(--vscode-list-activeSelectionBackground)));
       }
       .row.selected .subject,
       .row.selected .who,
       .row.selected .age {
         color: var(--vscode-list-activeSelectionForeground, var(--gs-fg));
       }
-      /* Selection reads as a left accent bar, VS Code list-style. */
-      .row.selected::before {
-        content: "";
-        position: absolute;
-        left: 0;
-        top: 0;
-        bottom: 0;
-        width: 2px;
-        background: var(--gs-accent);
+      /* Words on a lit row (the cursor's wash, the current match's tint)
+         take full ink. The subtle age read 3.3:1 on them in Dark+ and 2.0:1
+         in Light+, and the author 3.9:1. */
+      .row.focused:not(.selected) .who,
+      .row.focused:not(.selected) .age,
+      .row.is-match:not(.selected) .who,
+      .row.is-match:not(.selected) .age {
+        color: var(--gs-fg);
+      }
+      /* High contrast paints no selection fill: VS Code's whole dashed ring
+         for a selection and a solid one for the cursor, never a side. */
+      :host-context(body.vscode-high-contrast) .row.selected,
+      :host-context(body.vscode-high-contrast) .row.focused {
+        outline: 1px dashed var(--vscode-contrastActiveBorder, var(--vscode-focusBorder));
+        outline-offset: -1px;
+      }
+      :host-context(body.vscode-high-contrast) .row.selected.focused {
+        outline-style: solid;
       }
       .rail {
         flex: 0 0 auto;
@@ -437,7 +505,7 @@ export class CommitRail extends LitElement {
       .row.selected .avatar {
         box-shadow:
           0 0 0 1.5px var(--gs-av-ring, var(--vscode-focusBorder)),
-          0 0 0 3px var(--vscode-list-activeSelectionBackground, var(--gs-graph-node-hole));
+          0 0 0 3px var(--gs-graph-node-hole);
       }
 
       .body {
@@ -560,6 +628,12 @@ export class CommitRail extends LitElement {
         color: var(--gs-fg-subtle);
         font-variant-numeric: tabular-nums;
       }
+      /* On a lit row the "+N" count takes the row's full ink: the subtle ink
+         read 2.35 to 3.33:1 on the selection's fill, the cursor's wash and a
+         match's. */
+      .row.selected .chip.more { color: var(--vscode-list-activeSelectionForeground, var(--gs-fg)); }
+      .row.focused:not(.selected) .chip.more,
+      .row.is-match:not(.selected) .chip.more { color: var(--gs-fg); }
       .chip .cloud { font-size: 9px; opacity: 0.85; }
 
       /* ── Hover actions (VS Code tree idiom): fade in over a scrim ──────── */
@@ -590,7 +664,7 @@ export class CommitRail extends LitElement {
         background: linear-gradient(
           to right,
           transparent,
-          var(--vscode-list-activeSelectionBackground, var(--gs-graph-node-hole)) 26px
+          var(--gs-graph-node-hole) 26px
         );
       }
       .row:hover .acts,
@@ -616,19 +690,19 @@ export class CommitRail extends LitElement {
       .acts .ibtn .codicon { font-size: 13px; }
 
       /* ── Search: matches pop, the rest recede ──────────────────────────── */
-      .row.is-nomatch { opacity: 0.35; }
-      .row.is-match::after {
-        content: "";
-        position: absolute;
-        left: 0;
-        top: 0;
-        bottom: 0;
-        width: 2px;
-        background: color-mix(in srgb, var(--gs-accent-text) 55%, transparent);
+      /* A match is washed in a soft yellow, as in the graph, and has no
+         strip down its edge (the owner's rule covers matched rows as well as
+         selected ones). The rows that do not match recede, and the current
+         match is lit in the accent (.is-cursor). */
+      /* …but never a selected row: the commit you picked stays readable. */
+      .row.is-nomatch:not(.selected) { opacity: 0.35; }
+      .row.is-match:not(.selected) {
+        background: color-mix(in srgb, var(--vscode-charts-yellow, #e2c08d) 16%, transparent);
+        --gs-graph-node-hole: color-mix(in srgb, var(--vscode-charts-yellow, #e2c08d) 16%, var(--gs-bg));
       }
-      .row.is-cursor {
+      .row.is-cursor:not(.selected) {
         background: color-mix(in srgb, var(--gs-accent-text) 12%, transparent);
-        --gs-graph-node-hole: var(--gs-bg);
+        --gs-graph-node-hole: color-mix(in srgb, var(--gs-accent-text) 12%, var(--gs-bg));
       }
 
       /* Reveal flash — a wash that decays after the scroll lands. */
@@ -665,6 +739,20 @@ export class CommitRail extends LitElement {
       .state .codicon { font-size: 22px; color: var(--gs-fg-subtle); }
       .state .t { font-size: 12px; color: var(--gs-fg-muted); }
       .state .s { font-size: 11px; color: var(--gs-fg-subtle); max-width: 220px; }
+      .state .spinner {
+        width: 16px;
+        height: 16px;
+        border-radius: 50%;
+        border: 2px solid color-mix(in srgb, var(--gs-fg-subtle) 30%, transparent);
+        border-top-color: var(--gs-fg-subtle);
+        animation: state-spin 0.8s linear infinite;
+      }
+      @keyframes state-spin {
+        to { transform: rotate(360deg); }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .state .spinner { animation: none; }
+      }
       .state button {
         margin-top: 6px;
         padding: 3px 12px;
@@ -831,11 +919,13 @@ export class CommitRail extends LitElement {
       }
       .pop .preset:hover { background: var(--gs-hover); }
       .pop .preset:focus-visible { outline: 1px solid var(--gs-accent); outline-offset: 1px; }
-      /* The menu's own ink on the wash, as the graph's presets: link-blue on
-         it read 3.34:1 in a light theme. The wash says "active". */
+      /* Lit, never outlined, as the graph's presets are: the selected tint
+         and its soft glow, with the idle presets' neutral edge. The menu's
+         own ink goes on it, because link-blue on it read 3.34:1 in a light
+         theme. */
       .pop .preset.active {
-        background: color-mix(in srgb, var(--gs-accent) 22%, transparent);
-        border-color: color-mix(in srgb, var(--gs-accent) 30%, transparent);
+        background: var(--gs-sel-fill);
+        box-shadow: var(--gs-sel-glow-soft);
       }
       .pop .preset[disabled] { opacity: 0.5; cursor: default; }
       .pop .preset[disabled]:hover { background: transparent; }
@@ -902,7 +992,9 @@ export class CommitRail extends LitElement {
   declare head: string;
   declare totalColumns: number;
   declare hasMore: boolean;
-  declare status: "loading" | "ready" | "empty" | "error";
+  /** "no-repo": no repository is open (GraphInitMessage.noRepo) — not an empty history.
+   *  "discovering": none YET — the host is still looking (GraphInitMessage.discovering). */
+  declare status: "loading" | "ready" | "empty" | "error" | "no-repo" | "discovering";
   declare errorMessage: string;
   /** The branch filter the rows were built under (issue #30); null = all. */
   declare refFilter: GraphRefFilter;
@@ -936,7 +1028,12 @@ export class CommitRail extends LitElement {
     x: number;
     y: number;
   } | null;
+  /** The FOCUSED row ("" for none): the keyboard's cursor — with one row
+   *  selected, that row. */
   private declare selectedSha: string;
+  /** Which rows are selected, and the Shift-range anchor (issue #32 — see
+   *  multiSelect.ts). Its `focus` is `selectedSha`. */
+  private sel: Selection = NO_SELECTION;
 
   /** Row intents, forwarded to the host by the entry point. */
   onAction: (action: RailAction) => void = () => {};
@@ -986,6 +1083,11 @@ export class CommitRail extends LitElement {
   private virtualizer: Virtualizer<HTMLDivElement, HTMLDivElement> | undefined;
   private cleanupVirtualizer: (() => void) | undefined;
   private boundScroller: HTMLDivElement | undefined;
+  /** Where the list was scrolled, kept while attached — a detached scroller
+   *  loses its offset (the same rule, and the same reason, as the graph's
+   *  keptScrollTop in commit-graph.ts). */
+  private keptScrollTop = 0;
+  private restoreScrollPending = false;
   /** The "+N" ref pill's hover card (see refTip.ts). */
   private readonly refTip = new RefTip(() =>
     this.renderRoot.querySelector(".reftip"),
@@ -1048,6 +1150,8 @@ export class CommitRail extends LitElement {
     // the window you last looked at, still at their old offsets, and nothing
     // ever repainting them. Scrolled down first, that is a blank list.
     this.requestUpdate();
+    // A RE-attach (see keptScrollTop): the first connect has nothing to keep.
+    this.restoreScrollPending = this.keptScrollTop > 0;
     this.disposeTheme = observeGraphTheme((palette) => {
       this.palette = palette;
       this.renderRows();
@@ -1092,6 +1196,11 @@ export class CommitRail extends LitElement {
     if (changed.has("branchesOpen") && this.branchesOpen) {
       this.renderRoot.querySelector<HTMLInputElement>(".pop .flt input")?.focus();
     }
+    // The commit menu the menu key opened takes the keyboard, or ↓ moves the
+    // selection under a menu that is still open for the old one (issue #32).
+    if (changed.has("commitMenu") && this.commitMenu?.focusFirst) {
+      this.renderRoot.querySelector<HTMLElement>(".pop.commitmenu .mi:not([disabled])")?.focus();
+    }
 
     const scroller = this.renderRoot.querySelector<HTMLDivElement>(".scroller");
     if (scroller) {
@@ -1107,10 +1216,21 @@ export class CommitRail extends LitElement {
       // near-bottom loadMore trigger never fired. Paint first; landing the
       // reveal, when it can land, is its own paint on top.
       this.renderRows();
+      this.restoreKeptScroll(scroller);
       if (this.pendingReveal) this.retryReveal();
     } else {
       this.teardownVirtualizer();
     }
+  }
+
+  /** After a re-attach, back to where the list was (see commit-graph.ts). */
+  private restoreKeptScroll(scroller: HTMLDivElement): void {
+    if (!this.restoreScrollPending || !this.rows.length) return;
+    this.restoreScrollPending = false;
+    const want = Math.min(this.keptScrollTop, Math.max(0, scroller.scrollHeight - scroller.clientHeight));
+    if (want <= 0 || scroller.scrollTop === want) return;
+    scroller.scrollTop = want;
+    scroller.dispatchEvent(new Event("scroll"));
   }
 
   // ── Virtualizer ─────────────────────────────────────────────────────────
@@ -1135,7 +1255,17 @@ export class CommitRail extends LitElement {
       this.virtualizerOptions(),
     );
     this.virtualizer = v;
-    this.cleanupVirtualizer = v._didMount();
+    const unmount = v._didMount();
+    // Only while attached: a detached scroller fires nothing, so the last
+    // offset read is the one it had when it was taken out.
+    const keep = (): void => {
+      if (this.isConnected) this.keptScrollTop = scroller.scrollTop;
+    };
+    scroller.addEventListener("scroll", keep, { passive: true });
+    this.cleanupVirtualizer = () => {
+      scroller.removeEventListener("scroll", keep);
+      unmount();
+    };
     v._willUpdate();
   }
 
@@ -1151,6 +1281,37 @@ export class CommitRail extends LitElement {
     for (let i = 0; i < this.rows.length; i++) {
       this.shaToIndex.set(this.rows[i].sha, i);
     }
+    // Rows that are gone leave the selection (issue #32): a menu for "3
+    // commits" must not include one a rewrite replaced.
+    const next = reconcile(this.sel, this.order());
+    if (next !== this.sel) {
+      this.sel = next;
+      this.selectedSha = next.focus ?? "";
+    }
+  }
+
+  /** Every loaded row's sha, in list order. */
+  private order(): string[] {
+    return this.rows.map((r) => r.sha);
+  }
+
+  /** The selected commits, newest first as the list shows them (issue #32). */
+  get selectedShas(): string[] {
+    return inOrder(this.sel, this.order());
+  }
+
+  /** Apply a selection gesture's result and repaint. The rail has no details
+   *  pane, so nothing goes to the host until a menu is asked for. */
+  private setSelection(next: Selection, scroll = false): void {
+    this.sel = next;
+    this.selectedSha = next.focus ?? "";
+    if (scroll && next.focus) {
+      // scrollToRow, not a bare scrollToIndex: the paint below must draw the
+      // window the list lands on (End, PageDown, Shift+End far down the list).
+      const i = this.shaToIndex.get(next.focus);
+      if (i !== undefined) this.scrollToRow(i, "auto");
+    }
+    this.renderRows();
   }
 
   /** PER-ROW rail width: exactly the lanes THIS row uses (its node + every
@@ -1205,7 +1366,8 @@ export class CommitRail extends LitElement {
     if (!row) return "";
     const railW = this.rowRailWidth(row);
     const isWip = ZERO_SHA_RE.test(row.sha);
-    const selected = row.sha === this.selectedSha;
+    const selected = this.sel.selected.has(row.sha);
+    const focused = row.sha === this.selectedSha;
     const searching = this.searchQuery.trim().length > 0;
     const isMatch = searching && this.matchSet.has(item.index);
     const isCursor =
@@ -1215,6 +1377,7 @@ export class CommitRail extends LitElement {
     const cls =
       "row" +
       (selected ? " selected" : "") +
+      (focused ? " focused" : "") +
       (isWip ? " is-wip" : "") +
       (row.isMerge ? " is-merge" : "") +
       (searching ? (isMatch ? " is-match" : " is-nomatch") : "") +
@@ -1284,7 +1447,7 @@ export class CommitRail extends LitElement {
         `</span>`;
 
     return (
-      `<div class="${cls}" role="option" data-sha="${row.sha}" data-idx="${item.index}" ` +
+      `<div class="${cls}" role="option" id="gs-rail-${row.sha}" data-sha="${row.sha}" data-idx="${item.index}" ` +
       `aria-selected="${selected ? "true" : "false"}" title="${esc(tip)}" ` +
       `style="transform:translateY(${item.start}px)">` +
       `<div class="rail" style="width:${railW}px">${rail}${avatar}</div>` +
@@ -1441,7 +1604,13 @@ export class CommitRail extends LitElement {
       }
       return;
     }
-    this.select(hit.sha);
+    // Cmd/Ctrl adds or removes the row, Shift selects from the anchor
+    // (issue #32 — multiSelect.ts has the whole table).
+    if (e.shiftKey || e.metaKey || e.ctrlKey) {
+      this.setSelection(clickSelect(this.sel, this.order(), hit.sha, e, canJoin));
+    } else {
+      this.select(hit.sha);
+    }
     this.boundScroller?.focus({ preventScroll: true });
   };
 
@@ -1462,12 +1631,28 @@ export class CommitRail extends LitElement {
     const hit = this.rowFromEvent(e);
     if (!hit) return;
     e.preventDefault();
-    this.select(hit.sha);
-    this.onAction({ type: "context", sha: hit.sha, x: e.clientX, y: e.clientY });
+    this.openMenuFor(hit.sha, e.clientX, e.clientY);
   };
 
+  /**
+   * The commit menu for a right-click (or the menu key) on `sha`: inside a
+   * selection of several it is for ALL of them and the selection stays;
+   * anywhere else that row is selected alone — as in the graph (issue #32).
+   */
+  private openMenuFor(sha: string, x: number, y: number): void {
+    const next = contextSelect(this.sel, sha);
+    if (isMany(next)) {
+      this.setSelection(next);
+      this.onAction({ type: "context", sha, shas: this.selectedShas, x, y });
+      return;
+    }
+    this.select(sha);
+    this.onAction({ type: "context", sha, x, y });
+  }
+
   private select(sha: string): void {
-    if (this.selectedSha === sha) return;
+    if (this.selectedSha === sha && this.sel.selected.size === 1 && this.sel.selected.has(sha)) return;
+    this.sel = only(sha);
     this.selectedSha = sha;
     this.renderRows();
   }
@@ -1479,9 +1664,9 @@ export class CommitRail extends LitElement {
     const idx = this.shaToIndex.get(this.selectedSha) ?? -1;
     const move = (to: number): void => {
       const i = Math.max(0, Math.min(this.rows.length - 1, to));
-      this.selectedSha = this.rows[i].sha;
-      this.virtualizer?.scrollToIndex(i, { align: "auto" });
-      this.renderRows();
+      const sha = this.rows[i].sha;
+      // Shift extends the selection from its anchor (issue #32).
+      this.setSelection(e.shiftKey ? moveTo(this.sel, this.order(), sha, true, canJoin) : only(sha), true);
     };
     switch (e.key) {
       case "ArrowDown":
@@ -1511,6 +1696,9 @@ export class CommitRail extends LitElement {
       case "Enter":
         if (this.selectedSha) {
           e.preventDefault();
+          // The row the keyboard is on opens, alone — as in the graph, the
+          // commit that opens is the one left selected (issue #32).
+          if (isMany(this.sel)) this.setSelection(collapse(this.sel));
           this.onAction({ type: "open", sha: this.selectedSha });
         }
         break;
@@ -1518,7 +1706,9 @@ export class CommitRail extends LitElement {
       case "F10":
         if ((e.key === "F10" && !e.shiftKey) || !this.selectedSha) break;
         e.preventDefault();
-        this.onAction({ type: "context", sha: this.selectedSha, x: -1, y: -1 });
+        // x/y -1: under the focused row (showCommitMenu). Inside a selection
+        // of several the menu is for all of it, as a right-click's is.
+        this.openMenuFor(this.selectedSha, -1, -1);
         break;
       case "/":
         e.preventDefault();
@@ -1527,7 +1717,13 @@ export class CommitRail extends LitElement {
       case "Escape":
         if (this.searchQuery) {
           this.clearSearch();
+        } else if (isMany(this.sel)) {
+          // Several selected: keep only the focused row (issue #32).
+          e.preventDefault();
+          e.stopPropagation();
+          this.setSelection(collapse(this.sel));
         } else if (this.selectedSha) {
+          this.sel = NO_SELECTION;
           this.selectedSha = "";
           this.renderRows();
         }
@@ -1587,6 +1783,7 @@ export class CommitRail extends LitElement {
   private land(sha: string): void {
     const idx = this.shaToIndex.get(sha);
     if (idx === undefined || !this.virtualizer) return;
+    this.sel = only(sha);
     this.selectedSha = sha;
     this.flashSha = sha;
     if (this.flashTimer) clearTimeout(this.flashTimer);
@@ -1594,8 +1791,26 @@ export class CommitRail extends LitElement {
       this.flashSha = "";
       this.renderRows();
     }, 1300);
-    this.virtualizer.scrollToIndex(idx, { align: "center" });
+    this.scrollToRow(idx, "center");
     this.renderRows();
+  }
+
+  /**
+   * Scroll to a row, and tell the virtualizer at once. It learns its offset
+   * from scroll events, which the browser sends at its next rendering update
+   * (and not at all to an occluded webview, or to a headless page that gets
+   * no frame), so the paint after a bare scrollToIndex drew the OLD window
+   * at the new offset: a jump far down the list — a reveal, End, a search
+   * match — left the row it jumped to out of the DOM until that event came.
+   * scrollToTop tells it the same way.
+   */
+  private scrollToRow(index: number, align: "auto" | "center"): void {
+    const v = this.virtualizer;
+    if (!v) return;
+    const s = this.boundScroller;
+    const from = s?.scrollTop;
+    v.scrollToIndex(index, { align });
+    if (s && s.scrollTop !== from) s.dispatchEvent(new Event("scroll"));
   }
 
   /** Open the host-built commit actions menu as a popover at (x, y). */
@@ -1605,6 +1820,8 @@ export class CommitRail extends LitElement {
     y: number,
     title: string,
     items: RailMenuItem[],
+    /** A menu for several commits (issue #32), newest first. */
+    shas?: string[],
   ): void {
     this.scopeOpen = false;
     this.branchesOpen = false;
@@ -1612,7 +1829,8 @@ export class CommitRail extends LitElement {
     let px = x;
     let py = y;
     if (x < 0 || y < 0) {
-      const row = this.renderRoot.querySelector<HTMLElement>(".row.selected");
+      // Under the FOCUSED row — among several selected, the keyboard's one.
+      const row = this.renderRoot.querySelector<HTMLElement>(".row.focused");
       const r = row?.getBoundingClientRect();
       px = r ? r.left + 40 : window.innerWidth / 2;
       py = r ? r.bottom - 4 : window.innerHeight / 2;
@@ -1624,7 +1842,17 @@ export class CommitRail extends LitElement {
       items.reduce((n, i) => n + (i.sep ? 9 : 26), 0) + 30;
     px = Math.max(4, Math.min(px, window.innerWidth - estW - 4));
     py = Math.max(4, Math.min(py, window.innerHeight - Math.min(estH, 320) - 4));
-    this.commitMenu = { sha, x: px, y: py, title, items };
+    // x/y < 0 is the menu key's request coming back (onScrollerKeyDown).
+    const focusFirst = x < 0 || y < 0;
+    this.commitMenu = {
+      sha,
+      ...(shas && shas.length > 1 ? { shas } : {}),
+      x: px,
+      y: py,
+      title,
+      items,
+      ...(focusFirst ? { focusFirst } : {}),
+    };
   }
 
   // ── Popover dismissal ───────────────────────────────────────────────────
@@ -1752,7 +1980,7 @@ export class CommitRail extends LitElement {
       }
     }
     if (jump && this.searchMatches.length) {
-      this.virtualizer?.scrollToIndex(this.searchMatches[0], { align: "auto" });
+      this.scrollToRow(this.searchMatches[0], "auto");
     }
   }
 
@@ -1761,9 +1989,7 @@ export class CommitRail extends LitElement {
     this.matchIdx =
       (this.matchIdx + delta + this.searchMatches.length) %
       this.searchMatches.length;
-    this.virtualizer?.scrollToIndex(this.searchMatches[this.matchIdx], {
-      align: "center",
-    });
+    this.scrollToRow(this.searchMatches[this.matchIdx], "center");
     this.requestUpdate();
     this.renderRows();
   }
@@ -1843,9 +2069,13 @@ export class CommitRail extends LitElement {
         ? this.skeletonTpl()
         : this.status === "empty"
           ? this.emptyTpl()
-          : this.status === "error"
-            ? this.errorTpl()
-            : this.listTpl()}
+          : this.status === "no-repo"
+            ? this.noRepoTpl()
+            : this.status === "discovering"
+              ? this.discoveringTpl()
+            : this.status === "error"
+              ? this.errorTpl()
+              : this.listTpl()}
       ${this.scopeOpen ? this.scopePopTpl() : nothing}
       ${this.branchesOpen ? this.branchesPopTpl() : nothing}
       ${this.commitMenu ? this.menuPopTpl(this.commitMenu) : nothing}
@@ -2207,7 +2437,7 @@ export class CommitRail extends LitElement {
   private menuPopTpl(menu: RailMenu) {
     return html`
       <div
-        class="pop"
+        class="pop commitmenu"
         role="menu"
         aria-label="Commit actions"
         style="left:${menu.x}px;top:${menu.y}px"
@@ -2226,6 +2456,7 @@ export class CommitRail extends LitElement {
                     this.onAction({
                       type: "menuAction",
                       sha: menu.sha,
+                      ...(menu.shas ? { shas: menu.shas } : {}),
                       id: item.id,
                     });
                   }}
@@ -2247,6 +2478,8 @@ export class CommitRail extends LitElement {
         class="scroller"
         role="listbox"
         aria-label="Commits"
+        aria-multiselectable="true"
+        aria-activedescendant=${this.selectedSha ? `gs-rail-${this.selectedSha}` : nothing}
         tabindex="0"
         @click=${this.onScrollerClick}
         @dblclick=${this.onScrollerDblClick}
@@ -2283,6 +2516,27 @@ export class CommitRail extends LitElement {
             </span>
           </div>
         `)}
+      </div>
+    `;
+  }
+
+  /** The Changes view above the rail says "Looking for a repository…" while
+   *  discovery runs; the rail must not say "No repository open" under it. */
+  private discoveringTpl() {
+    return html`
+      <div class="state" role="status">
+        <span class="spinner" aria-hidden="true"></span>
+        <span class="t">Looking for a repository…</span>
+      </div>
+    `;
+  }
+
+  private noRepoTpl() {
+    return html`
+      <div class="state">
+        <span class="codicon codicon-source-control"></span>
+        <span class="t">No repository open</span>
+        <span class="s">Open a folder that's under Git and its history will appear here.</span>
       </div>
     `;
   }

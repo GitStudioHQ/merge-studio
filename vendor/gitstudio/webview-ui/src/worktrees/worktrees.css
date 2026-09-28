@@ -1,0 +1,572 @@
+/* The Worktrees view (worktrees/view.ts). Rows share the push review's
+ * commit and file rows (changeRows.css); everything else is scoped under
+ * .wt-* so the desktop can import it whole.
+ *
+ * Colours are --gs-* tokens (tokens.css) or --vscode-* names with a
+ * fallback — never a hard colour.
+ *
+ * NB: never write a star-slash pair inside a comment here — a selector glob
+ * closes it early and silently eats the next rule. */
+
+@import "../styles/tokens.css";
+@import "../changeRows/changeRows.css";
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+}
+body {
+  color: var(--gs-fg);
+  background: var(--gs-bg);
+  font-family: var(--gs-font-ui);
+  font-size: 13px;
+  line-height: 1.35;
+  /* An opaque hover, so the buttons over a row's state sit on one colour. */
+  --wt-hover: color-mix(in srgb, var(--gs-fg) 7%, var(--gs-bg));
+  /* An open worktree's card: a step off the side bar, under the hover. */
+  --wt-card: color-mix(in srgb, var(--gs-fg) 4%, var(--gs-bg));
+}
+.wt-view *,
+.wt-view *::before,
+.wt-view *::after {
+  box-sizing: border-box;
+}
+.wt-view [hidden],
+[hidden].wt-menu,
+.gs-tip[hidden] {
+  display: none !important;
+}
+.wt-view .codicon {
+  line-height: 1;
+  color: inherit;
+}
+
+/* ---- Top: the filter, past eight worktrees ------------------------------ */
+.wt-top {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  padding: 6px 8px 4px;
+  background: var(--gs-bg);
+}
+.wt-filter {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 24px;
+  padding: 0 6px;
+  border-radius: 2px;
+  background: var(--vscode-input-background, var(--gs-surface));
+  border: 1px solid var(--vscode-input-border, transparent);
+  color: var(--vscode-input-foreground, var(--gs-fg));
+}
+.wt-filter:focus-within {
+  outline: 1px solid var(--gs-accent);
+  outline-offset: -1px;
+}
+.wt-filter .codicon {
+  flex: 0 0 auto;
+  font-size: 13px;
+  color: var(--cr-muted);
+}
+.wt-filter-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 22px;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 12.5px;
+}
+.wt-filter-input::placeholder {
+  color: var(--vscode-input-placeholderForeground, var(--gs-fg-muted));
+}
+
+/* ---- The list: one line per worktree, as a VS Code tree draws it -------- */
+.wt-list {
+  padding: 2px 0 6px;
+}
+/* Two inks, as a VS Code tree has: the folder's name at full ink, and
+   everything that describes it — its branch, its state, a folder that is
+   gone, the chevrons and icons, an open row's labels and its files' folders
+   — quieter, as the tree draws a description (at opacity .7). The quiet ink
+   is the name's own, mixed toward the background, never the theme's
+   descriptionForeground: Light Modern's IS its foreground (#3B3B3B), and
+   there a branch read exactly as loud as its folder. 78% holds AA (4.5:1)
+   on a row and on its hover in every theme, and reads clearly quieter than
+   the name. Declared on the list too, so it follows the list's own ink. */
+.wt-view,
+.wt-list {
+  --wt-quiet: color-mix(in srgb, var(--gs-fg) 78%, var(--gs-bg));
+  --cr-muted: var(--wt-quiet);
+}
+/* Light+: the names take a deeper ink than the side bar's grey (the quiet
+   words, mixed from it, then read at AA). */
+.vscode-light .wt-list {
+  --gs-fg: color-mix(in srgb, var(--vscode-foreground) 55%, var(--vscode-editor-foreground, #000000));
+  color: var(--gs-fg);
+}
+/* Two lines, as a stash row is: its folder, then its branch and how it
+   stands — neither cut to make room for the other at a sidebar's width. */
+.wt-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 38px;
+  margin: 0 4px;
+  padding: 0 4px 0 2px;
+  border-radius: var(--gs-radius-sm);
+  overflow: hidden;
+  white-space: nowrap;
+  cursor: pointer;
+  user-select: none;
+}
+/* Hovered: a tinted fill, never a line. It is opaque, so the buttons that
+   cover the state sit on one colour. */
+.wt-row:hover,
+.wt-row.has-menu {
+  background: var(--wt-hover);
+}
+.wt-row:focus {
+  outline: none;
+}
+.wt-row:focus-visible {
+  outline: 1px solid var(--gs-accent);
+  outline-offset: -1px;
+}
+.wt-chevron,
+.wt-icon {
+  flex: 0 0 16px;
+  width: 16px;
+  height: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--wt-quiet);
+}
+.wt-chevron .codicon {
+  font-size: 14px;
+  transition: transform var(--gs-motion-fast) var(--gs-ease);
+}
+.wt-item.open > .wt-row .wt-chevron .codicon {
+  transform: rotate(90deg);
+}
+.wt-icon {
+  margin-right: 2px;
+}
+/* Codicons' own worktree, as large as a stash's icon. */
+.wt-icon .codicon {
+  font-size: 16px;
+}
+/* The folder's name gives way last — and then in its middle (fitRow), so
+   the end that tells "wf_…cc2-1" from "wf_…cc2-2" stays. */
+.wt-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+.wt-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 13px;
+  line-height: 17px;
+}
+/* The second line: the branch, then how it stands — the quiet ink. */
+.wt-meta {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  min-width: 0;
+  overflow: hidden;
+  font-size: 11.5px;
+  line-height: 15px;
+  color: var(--wt-quiet);
+}
+
+/* This window's worktree: its name at full weight — no label, no line. */
+.wt-row.is-current .wt-name {
+  font-weight: 600;
+}
+.wt-row.is-current .wt-icon {
+  color: var(--gs-fg);
+}
+/* What it has checked out, quieter, after git's branch symbol — the symbol
+   and four letters, or none of it (fitRow): never a lone symbol. */
+.wt-head {
+  flex: 0 1 auto;
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  align-self: center;
+  gap: 3px;
+  overflow: hidden;
+}
+.wt-head .codicon {
+  flex: 0 0 auto;
+  font-size: 12px;
+}
+.wt-head-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.wt-row.is-missing .wt-name,
+.wt-row.is-missing .wt-icon {
+  color: var(--wt-quiet);
+}
+/* How it stands, never cut: the branch gives way before it (fitRow). After
+   a branch shown, a dot between them — drawn, not said (a screen reader
+   hears "feature/login, 5 changed"). */
+.wt-state {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+.wt-head:not([hidden]) + .wt-state:not(:empty)::before {
+  content: "·" / "";
+  margin-right: 5px;
+}
+/* Something stopped halfway, or a folder that is gone: the words take the
+   warning hue, leaned toward the ink so they read at AA. */
+.wt-state[data-tone="attention"] {
+  color: color-mix(in srgb, var(--gs-amber), var(--cr-lean) var(--wt-lean-by, 30%));
+}
+.vscode-light .wt-state[data-tone="attention"] {
+  --wt-lean-by: 48%;
+}
+/* A busy row says what it is doing, at full ink: busy is said (the words,
+   the cursor, aria-busy and its disabled buttons), never faded. Only the
+   row's icons step back. */
+.wt-state.wt-busy {
+  font-style: italic;
+  color: var(--gs-fg);
+}
+.wt-row.is-busy {
+  cursor: progress;
+}
+.wt-row.is-busy .wt-icon,
+.wt-row.is-busy .wt-chevron {
+  opacity: 0.55;
+}
+/* Hovered too: its buttons (disabled while it runs) never cover what it is
+   doing. Its menu doesn't open (view.ts), so there is nothing to show. */
+.wt-row.is-busy .wt-actions,
+.wt-row.is-busy:hover .wt-actions {
+  visibility: hidden;
+}
+.wt-row.is-busy .wt-state,
+.wt-row.is-busy:hover .wt-state {
+  visibility: visible;
+}
+
+/* ---- A row's buttons: shown on hover, over the row's end ---------------- */
+/* On the hover's own fill, centred on the two lines: at rest they take no
+   room from the words. */
+.wt-actions {
+  position: absolute;
+  top: 50%;
+  right: 4px;
+  transform: translateY(-50%);
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+  padding-left: 6px;
+  border-radius: var(--gs-radius-sm);
+  background: var(--wt-hover);
+  visibility: hidden;
+}
+.wt-row:hover .wt-actions,
+.wt-row.has-menu .wt-actions {
+  visibility: visible;
+}
+.wt-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  border-radius: var(--gs-radius-sm);
+  background: transparent;
+  color: var(--gs-fg);
+  cursor: pointer;
+}
+.wt-icon-btn .codicon {
+  font-size: 14px;
+}
+.wt-icon-btn:hover {
+  background: var(--vscode-toolbar-hoverBackground, var(--gs-hover));
+}
+.wt-icon-btn:focus-visible {
+  outline: 1px solid var(--gs-accent);
+  outline-offset: -1px;
+}
+.wt-icon-btn:disabled {
+  opacity: 0.4;
+  cursor: progress;
+}
+
+/* ---- An open row: only what it has -------------------------------------- */
+/* An open worktree: its line and what it holds on one soft card, so what
+   belongs to which reads at a glance — a surface, never a line. */
+.wt-item.open {
+  margin: 2px 6px 6px;
+  padding-bottom: 6px;
+  border-radius: var(--gs-radius);
+  background: var(--wt-card);
+}
+.wt-item.open > .wt-row {
+  margin: 0;
+}
+/* On the card's lighter ground a status letter leans a little further toward
+   the ink (the rows' 18% left Dark+'s red "D" at 4.3:1). */
+.vscode-dark .wt-item.open {
+  --cr-lean-by: 26%;
+}
+/* High contrast paints no tints, and a line marks nothing here: the card is
+   its captions and its indent. */
+.vscode-high-contrast .wt-item.open {
+  background: transparent;
+}
+.wt-details {
+  padding: 0 4px 0 18px;
+}
+/* Its lists' captions, as the push review writes them: small capitals and
+   a count ("STAGED CHANGES 1", "NOT ON MASTER 2"). */
+.wt-details .cr-section-label {
+  padding: 8px 8px 3px;
+}
+/* Pull and Push…, under what they move — drawn only when there is some. */
+.wt-verbs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 8px 8px 0;
+}
+.wt-verb {
+  height: 22px;
+  padding: 0 8px;
+  font-size: 12px;
+  /* A button, read as one on the card whatever the theme's secondary fill:
+     a step of fill, never an outline. */
+  color: var(--gs-fg);
+  background: color-mix(in srgb, var(--gs-fg) 10%, var(--wt-card));
+}
+.wt-verb:not([disabled]):hover {
+  background: color-mix(in srgb, var(--gs-fg) 16%, var(--wt-card));
+}
+/* High contrast: the icon and the word, ringed only when focused. */
+.vscode-high-contrast .wt-verb {
+  background: transparent;
+}
+.wt-verb .codicon {
+  font-size: 13px;
+}
+.wt-verb:focus-visible {
+  outline: 1px solid var(--gs-accent);
+  outline-offset: 1px;
+}
+.wt-details .cr-commit,
+.wt-details .cr-file {
+  min-height: 22px;
+  padding-top: 1px;
+  padding-bottom: 1px;
+}
+.wt-details .cr-empty,
+.wt-details .cr-loading {
+  padding: 3px 8px;
+  font-size: 12px;
+}
+/* Hovered: a fill, never an underline. */
+.wt-view .cr-file.clickable:hover .cr-name {
+  text-decoration: none;
+}
+/* The group's label says staged or conflicted: no file wears a pill for it. */
+.wt-view .cr-tag {
+  display: none;
+}
+
+/* ---- Prune: a quiet link under the list --------------------------------- */
+.wt-foot {
+  padding: 2px 8px 8px 26px;
+}
+.wt-prune {
+  height: 22px;
+  padding: 0 6px;
+  border: none;
+  border-radius: var(--gs-radius-sm);
+  background: transparent;
+  color: var(--gs-link, var(--gs-accent-text));
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.wt-prune:hover {
+  background: var(--gs-hover);
+}
+.wt-prune:focus-visible {
+  outline: 1px solid var(--gs-accent);
+  outline-offset: -1px;
+}
+
+/* ---- Nothing to list, or only the main worktree ------------------------- */
+.wt-note {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 14px 16px 10px;
+  text-align: center;
+  color: var(--cr-muted);
+}
+.wt-note-title {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--gs-fg);
+}
+.wt-note-hint {
+  font-size: 11.5px;
+  line-height: 1.45;
+  max-width: 250px;
+}
+.wt-add {
+  margin-top: 8px;
+  height: 26px;
+  font-size: 12px;
+}
+
+/* ---- The More menu ------------------------------------------------------ */
+.wt-menu {
+  position: fixed;
+  z-index: 60;
+  min-width: 210px;
+  max-width: min(300px, calc(100vw - 12px));
+  display: flex;
+  flex-direction: column;
+  padding: 4px;
+  background: var(--vscode-menu-background, var(--gs-surface));
+  color: var(--vscode-menu-foreground, var(--gs-fg));
+  border: 1px solid var(--vscode-menu-border, var(--gs-border));
+  border-radius: var(--gs-radius);
+  box-shadow: var(--gs-shadow-2);
+  font-family: var(--gs-font-ui);
+}
+.wt-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 5px 8px;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 12.5px;
+  text-align: left;
+  border-radius: var(--gs-radius-sm);
+  cursor: pointer;
+}
+.wt-menu-item .codicon {
+  flex: 0 0 auto;
+  font-size: 14px;
+  color: var(--gs-menu-muted);
+}
+.wt-menu-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wt-menu-item:hover,
+.wt-menu-item:focus-visible {
+  background: var(--gs-hover-strong);
+  outline: none;
+}
+.wt-menu-item.danger {
+  color: var(--gs-danger);
+}
+.wt-menu-item.danger .codicon {
+  color: inherit;
+}
+.wt-menu-sep {
+  height: 1px;
+  margin: 4px 6px;
+  background: var(--gs-border);
+}
+
+/* ---- Tooltip ------------------------------------------------------------ */
+.gs-tip {
+  position: fixed;
+  z-index: 99999;
+  pointer-events: none;
+  max-width: min(320px, calc(100vw - 8px));
+  padding: 4px 8px;
+  border-radius: var(--gs-radius-sm);
+  border: 1px solid var(--vscode-editorHoverWidget-border, var(--gs-border));
+  background: var(--vscode-editorHoverWidget-background, var(--gs-surface-2));
+  color: var(--vscode-editorHoverWidget-foreground, var(--gs-fg));
+  font-family: var(--gs-font-ui);
+  font-size: 11.5px;
+  line-height: 1.4;
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+  box-shadow: var(--gs-shadow-2);
+  opacity: 0;
+  transition: opacity var(--gs-motion-fast) var(--gs-ease);
+}
+.gs-tip.show {
+  opacity: 1;
+}
+
+/* ---- High contrast ----------------------------------------------------
+   Hovered is still a fill, never a line — only keyboard focus draws one (the
+   contrast border, as VS Code's lists do). The fill is the ink at 16%, so
+   words on it keep their contrast. */
+.vscode-high-contrast body,
+body.vscode-high-contrast {
+  --wt-hover: color-mix(in srgb, var(--gs-fg) 16%, var(--gs-bg));
+}
+.vscode-high-contrast .wt-view .cr-commit:hover,
+.vscode-high-contrast .wt-view .cr-file:hover,
+.vscode-high-contrast .wt-menu-item:hover,
+.vscode-high-contrast .wt-menu-item:focus-visible,
+.vscode-high-contrast .wt-prune:hover,
+.vscode-high-contrast .wt-icon-btn:hover {
+  background: color-mix(in srgb, var(--gs-fg) 16%, transparent);
+  outline: none;
+}
+.vscode-high-contrast .wt-row:focus-visible,
+.vscode-high-contrast .wt-view .cr-commit:focus-visible,
+.vscode-high-contrast .wt-view .cr-file:focus-visible {
+  outline: 1px solid var(--vscode-contrastActiveBorder, var(--gs-accent));
+  outline-offset: -1px;
+}
+/* No hues here: a state that needs attention is the full ink at a heavier
+   weight, so "merge in progress" never reads like "3 to pull" (High
+   Contrast Light's own description ink is its foreground). */
+.vscode-high-contrast .wt-state[data-tone="attention"] {
+  color: var(--gs-fg);
+  font-weight: 600;
+}
+.vscode-high-contrast .wt-add {
+  border-color: var(--vscode-button-border, var(--vscode-contrastBorder, var(--gs-fg)));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wt-chevron .codicon,
+  .gs-tip {
+    transition: none;
+  }
+}

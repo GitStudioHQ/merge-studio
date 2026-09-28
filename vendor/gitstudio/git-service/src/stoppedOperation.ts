@@ -26,7 +26,20 @@ import { OperationProvider } from "./OperationProvider";
 export type StoppedOperation = "merge" | "rebase" | "cherry-pick" | "revert" | "am";
 
 /** The door a stop was in the way of. */
-export type BlockedDoor = "revert" | "cherry-pick" | "merge" | "rebase" | "checkout" | "stash" | "pull" | "reset";
+export type BlockedDoor =
+  | "revert"
+  | "cherry-pick"
+  | "merge"
+  | "rebase"
+  | "checkout"
+  | "stash"
+  | "pull"
+  | "reset"
+  /** Drop Commit (issue #32) — a rebase, said as the action the user chose. */
+  | "drop"
+  /** Drop N Commits and Squash N Commits (issue #32) — rebases too. */
+  | "drop-many"
+  | "squash";
 
 /** What git is stopped in, and what is left unmerged. */
 export interface Stopped {
@@ -104,6 +117,9 @@ const BEFORE: Record<BlockedDoor, string> = {
   stash: "applying a stash",
   pull: "pulling again",
   reset: "resetting",
+  drop: "dropping a commit",
+  "drop-many": "dropping commits",
+  squash: "squashing commits",
 };
 
 /** The operation, as the subject of a sentence. */

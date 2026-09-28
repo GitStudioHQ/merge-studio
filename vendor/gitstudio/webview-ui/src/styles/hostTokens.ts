@@ -35,7 +35,7 @@ export const hostTokens = css`
        the menu's ink: the desktop declares no menu tokens (cssTokens.test),
        and Light+/Dark+ paint their menus in the foreground anyway. */
     --gs-menu-muted: color-mix(in srgb, var(--vscode-descriptionForeground) 80%, var(--vscode-foreground));
-    --gs-accent: var(--vscode-focusBorder);
+    --gs-accent: var(--gs-accent-solid, var(--vscode-focusBorder)); /* styles/solidAccent.ts */
     --gs-accent-text: var(--vscode-textLink-foreground, var(--vscode-focusBorder));
     --gs-bg: var(--vscode-sideBar-background, var(--vscode-editor-background));
     --gs-surface: color-mix(in srgb, var(--gs-fg) 4%, var(--gs-bg));
@@ -67,6 +67,14 @@ export const hostTokens = css`
     --gs-status-modified: var(--vscode-charts-blue, #58a6ff);
     --gs-status-deleted: var(--vscode-charts-red, #f85149);
     --gs-status-renamed: var(--vscode-charts-purple, #bc8cff);
+    /* The selected state: lit, never lined. These are the same tokens and
+       numbers as tokens.css, where the rule and the reasoning live. */
+    --gs-sel-fill: color-mix(in srgb, var(--gs-accent) 18%, transparent);
+    --gs-sel-fill-strong: color-mix(in srgb, var(--gs-accent) 28%, transparent);
+    --gs-sel-glow: 0 0 16px -4px color-mix(in srgb, var(--gs-accent) 70%, transparent);
+    --gs-sel-glow-soft: 0 0 12px -5px color-mix(in srgb, var(--gs-accent) 60%, transparent);
+    --gs-sel-ink: color-mix(in srgb, var(--gs-accent-text) 72%, #ffffff);
+    --gs-sel-lift: #ffffff;
   }
   /* Match tokens.css: dark themes ship a near-invisible list-hover, so layer a
      foreground tint on top (firmer in dark) — via :host-context so a shadow-DOM
@@ -78,5 +86,17 @@ export const hostTokens = css`
   :host-context(.vscode-light) {
     --gs-hover: color-mix(in srgb, var(--gs-fg) 6%, var(--vscode-list-hoverBackground, transparent));
     --gs-hover-strong: color-mix(in srgb, var(--gs-fg) 10%, var(--vscode-list-hoverBackground, transparent));
+    --gs-sel-fill: color-mix(in srgb, var(--gs-accent) 12%, transparent);
+    --gs-sel-fill-strong: color-mix(in srgb, var(--gs-accent) 25%, transparent);
+    --gs-sel-glow: 0 0 14px -4px color-mix(in srgb, var(--gs-accent) 55%, transparent);
+    --gs-sel-glow-soft: 0 0 10px -5px color-mix(in srgb, var(--gs-accent) 45%, transparent);
+    --gs-sel-ink: color-mix(in srgb, var(--gs-accent-text) 82%, #000000);
+    --gs-sel-lift: #000000;
+  }
+  :host-context(.vscode-high-contrast) {
+    --gs-sel-ink: var(--gs-fg);
+  }
+  :host-context(.vscode-high-contrast-light) {
+    --gs-sel-lift: #000000;
   }
 `;

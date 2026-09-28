@@ -28,7 +28,11 @@ export interface RebaseCommitEntry {
   action: RebaseAction;
   /** The commit object name as it appears in the todo (abbreviated or full). */
   sha: string;
-  /** The commit subject (the remainder of the line after the sha). */
+  /**
+   * The commit subject: the remainder of the line after the sha — without the
+   * `# ` git 2.55 writes in front of it, in a todo that git wrote (see
+   * {@link todoSubject}).
+   */
   subject: string;
   /**
    * The verbatim original line text (no EOL). Re-emitted unchanged whenever the
@@ -74,7 +78,7 @@ const ACTION_BY_TOKEN: Readonly<Record<string, RebaseAction>> = {
  * We intentionally do NOT match `update-ref`, `exec`, etc. here — those start
  * with their own tokens and fall through to passthrough.
  */
-const COMMIT_LINE = /^(\s*)([A-Za-z]+)(\s+)([0-9a-fA-F]{4,40})(.*)$/;
+const COMMIT_LINE = /^(\s*)([A-Za-z]+)(\s+)([0-9a-fA-F]{4,64})(.*)$/;
 
 /**
  * Parse a `git-rebase-todo` into a typed line list. Comments, blanks, and any
@@ -87,18 +91,18 @@ export function parseRebaseTodo(text: string): RebaseLine[] {
   // Split on either EOL form. A trailing newline yields a final "" element we
   // drop so we don't synthesize a phantom blank line; serialize re-adds the
   // terminator. Lines keep no embedded "\r" because we strip a trailing one.
-  const rawLines = splitLines(text);
-  const lines: RebaseLine[] = [];
-
-  for (const raw of rawLines) {
-    const entry = parseCommitLine(raw);
-    lines.push(entry ?? { kind: "passthrough", raw });
-  }
-  return lines;
+  const parsed = splitLines(text).map((raw) => ({ raw, commit: parseCommitLine(raw) }));
+  // The subject's spelling is the FILE's, decided once from all its lines.
+  const format = todoSubjectFormat(parsed.flatMap((p) => (p.commit ? [p.commit.rest] : [])));
+  return parsed.map(({ raw, commit }): RebaseLine =>
+    commit
+      ? { kind: "commit", action: commit.action, sha: commit.sha, subject: todoSubject(commit.rest, format), raw }
+      : { kind: "passthrough", raw },
+  );
 }
 
-/** Attempts to read a single line as a commit entry; null if it isn't one. */
-function parseCommitLine(raw: string): RebaseCommitEntry | null {
+/** Reads a single line as a commit line — its verb, object name and the rest — or null. */
+function parseCommitLine(raw: string): { action: RebaseAction; sha: string; rest: string } | null {
   const m = COMMIT_LINE.exec(raw);
   if (!m) {
     return null;
@@ -108,11 +112,53 @@ function parseCommitLine(raw: string): RebaseCommitEntry | null {
   if (!action) {
     return null;
   }
-  const sha = m[4];
-  // Subject is the remainder after the sha, trimmed of its leading separator
-  // space so callers get a clean subject; the original spacing lives in `raw`.
-  const subject = m[5].replace(/^\s+/, "");
-  return { kind: "commit", action, sha, subject, raw };
+  return { action, sha: m[4], rest: m[5] };
+}
+
+/**
+ * How the git that wrote a todo spells what follows a commit line's object
+ * name:
+ *
+ *   "plain"    `pick 0151064 c3`     ← git up to 2.54
+ *   "comment"  `pick 0151064 # c3`   ← git 2.55: the subject is a comment
+ *
+ * A line alone cannot say which: `pick 2255d00 # empty` is an older git's
+ * empty commit with no message, and 2.55's commit whose subject is "empty". The
+ * file can. git 2.55 writes the separator on EVERY commit line (an empty
+ * subject is `# `, or `#` once an editor trims it), and an older git on a line
+ * only when that commit's subject itself starts with `#` — so one commit line
+ * without it makes the file an older git's.
+ *
+ * What the lines cannot settle is an older git's todo in which every subject
+ * begins `# ` or `#` alone; it reads as 2.55's. Nothing else could settle it
+ * exactly either: the file is written by whatever git the terminal ran, not
+ * necessarily the one this app would ask for its version.
+ */
+export function todoSubjectFormat(rests: readonly string[]): "plain" | "comment" {
+  return rests.length > 0 && rests.every((rest) => /^\s+#(?: |$)/.test(rest)) ? "comment" : "plain";
+}
+
+/**
+ * The commit subject from what follows the object name on a todo line, in the
+ * file's {@link todoSubjectFormat}.
+ *
+ * An older git's is the subject as written. git 2.55's starts with a `# `
+ * that is not part of it — shown as-is, every commit title read "# c3". The
+ * separator is always a literal `#` whatever `core.commentChar` says
+ * (verified against git 2.55 with `core.commentChar=;`), and an empty subject
+ * is `pick <sha> # ` — or `#` alone once an editor trims the line. Only ONE
+ * separator comes off: a subject that itself starts with `#` is written
+ * `pick <sha> # # hashtag` and is kept as `# hashtag`, and an empty commit
+ * with no message, `pick <sha> #  # empty`, reads `# empty` — as an older git
+ * writes it.
+ *
+ * Leading space is not part of a subject either way (an older git writes none
+ * there). Display only: a line is written back from its own `raw`, never from
+ * this.
+ */
+export function todoSubject(rest: string, format: "plain" | "comment"): string {
+  const subject = format === "comment" ? rest.replace(/^\s*#(?: |$)/, "") : rest;
+  return subject.replace(/^\s+/, "");
 }
 
 export interface SerializeOptions {
@@ -156,11 +202,18 @@ export function serializeRebaseTodo(
 /**
  * Render a commit entry. If its current `action` matches the verb its `raw`
  * began with, re-emit `raw` unchanged (preserving exact original spacing and
- * any short-form verb). Otherwise regenerate the canonical `<action> <sha> <subject>`.
+ * any short-form verb). Otherwise regenerate `<action> <sha>` followed by the
+ * rest of `raw` as git wrote it — so a newer git's `# <subject>` keeps its
+ * separator, and git's own trailing `# empty` stays — or by ` <subject>` for
+ * an entry with no line of its own.
  */
 function renderCommit(entry: RebaseCommitEntry): string {
   if (rawMatchesAction(entry)) {
     return entry.raw;
+  }
+  const m = COMMIT_LINE.exec(entry.raw);
+  if (m && m[4] === entry.sha) {
+    return `${entry.action} ${entry.sha}${m[5]}`;
   }
   const subject = entry.subject ? ` ${entry.subject}` : "";
   return `${entry.action} ${entry.sha}${subject}`;
