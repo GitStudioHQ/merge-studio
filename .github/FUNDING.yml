@@ -1,3 +1,8 @@
-# Shows the "Sponsor" button on the GitHub repo.
-# Requires enrolling at https://github.com/sponsors once — free to set up.
-github: antonarnaudov
+# Renders the "Sponsor" button on the repository page: GitHub Sponsors
+# (recurring support) and Buy me a coffee (a one-off tip, through Revolut).
+# The extensions' Marketplace pages take the Sponsors link from the `sponsor`
+# field in their package.json. GitStudioHQ/merge-studio's copy of this file is
+# written from GitStudioHQ/gitstudio's by the Merge Studio export: change it
+# there.
+github: [antonarnaudov]
+custom: ["https://checkout.revolut.com/pay/7a6070ab-99ba-4170-a125-c5911b1a5c1d"]
