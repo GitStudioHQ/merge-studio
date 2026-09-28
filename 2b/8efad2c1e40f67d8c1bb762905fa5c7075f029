@@ -1,0 +1,221 @@
+CHANGELOG.md
+  s_26f5e669d3043c::t_1cf9da675bee31 3-7
+VENDORED_FROM.json
+  s_26f5e669d3043c::t_659026138a385c 6,41,44,51-56,60-64,68,70,74,76-77,79,83,85-90,92,94-100,102-103,106-108,111-112,114-121,125,127,129,131,133-136,154,157-158,164-168,170,178-179,184-185,190-191,196-197,206-215,220,222,225-228,230-231,234-237,242,279-280,284,287,289
+package-lock.json
+  s_26f5e669d3043c::t_3f0a07718e1b8b 3,9
+package.json
+  s_26f5e669d3043c::t_b1c9e0a43001d4 5,528,532,536
+src/ids.ts
+  s_26f5e669d3043c::t_35cc0a086416dd 51-56
+src/msProduct.ts
+  s_26f5e669d3043c::t_4ea1da17b623dc 22,51
+test/manifest.test.ts
+  s_26f5e669d3043c::t_775c0f2997ae4f 11,87-96
+vendor/gitstudio/engine/package.json
+  s_26f5e669d3043c::t_b0fd9c0c9b2ecd 11
+vendor/gitstudio/engine/src/blame/parse.ts
+  s_26f5e669d3043c::t_055bc82e938436 142-149
+vendor/gitstudio/engine/src/forge/issueRefs.ts
+  s_26f5e669d3043c::t_e4c19eb89e2418 1-60
+vendor/gitstudio/engine/src/forge/parseRemote.ts
+  s_26f5e669d3043c::t_b0cada518f9e1e 83-107,109-201
+vendor/gitstudio/engine/src/forge/prCreate.ts
+  s_26f5e669d3043c::t_f7daba4069117a 1-225
+vendor/gitstudio/engine/src/forge/prList.ts
+  s_26f5e669d3043c::t_6ef6ec86496a53 1-535
+vendor/gitstudio/engine/src/forge/prPage.ts
+  s_26f5e669d3043c::t_ba75f9bd9a675f 1-877
+vendor/gitstudio/engine/src/forge/pullRequests.ts
+  s_26f5e669d3043c::t_28d60e64f1dc4a 1-414
+vendor/gitstudio/engine/src/rebase/chain.ts
+  s_26f5e669d3043c::t_b49b2526cf749e 86-99,106
+vendor/gitstudio/engine/src/rebase/drop.ts
+  s_26f5e669d3043c::t_367328d21ac928 1-168
+vendor/gitstudio/engine/src/rebase/many.ts
+  s_26f5e669d3043c::t_bd1ef5a3cc21c4 1-308
+vendor/gitstudio/engine/src/rebase/planEdit.ts
+  s_26f5e669d3043c::t_f01cdc684e2e7c 1-411
+vendor/gitstudio/engine/src/rebase/todo.ts
+  s_26f5e669d3043c::t_f3e30a168947d0 31-35,81,94-101,104-105,115-161,205-208,214-217
+vendor/gitstudio/extension/package.json
+  s_26f5e669d3043c::t_b76033e6e30c4c 5,130,137,213-214,264-275,412-435,444-456,468,472-477,480,486,492,494,544-549,558,683,685,701,709,713,725,727-745,767,779,973-978,1021-1069,1072-1180,1182-1210,1212,1215-1393,1395-1437,1440,1451,1454-1457,1459,1467-1468,1471-1474,1476,1484-1485,1488-1491,1493,1497-1499,1505,1508-1511,1513,1523,1526-1529,1531,1541,1544-1547,1549,1553,1582,1587,1589,1620,1640,1671,1689,1691-1702,1706,1710-1711,1715-1716,1720-1721,1725-1726,1734-1753,1822-1825,1860,1864,1868,1892,1910-1925,1946-1953,1956-1960,1964,1968,1974-1977,2022-2025,2110-2121,2260,2275,2277-2278,2282-2283,2287-2288,2292,2294-2296,2299-2302,2304-2305,2329,2513-2516,2540
+vendor/gitstudio/git-service/package.json
+  s_26f5e669d3043c::t_7b48fddbccc032 11
+vendor/gitstudio/git-service/src/ConflictOps.ts
+  s_26f5e669d3043c::t_330542c30285dc 120-126,215,250-254,265-271,351,391-423,442,486,538-555,771-774,795
+vendor/gitstudio/git-service/src/GitContext.ts
+  s_26f5e669d3043c::t_6b8683f944185a 59-71,73
+vendor/gitstudio/git-service/src/GitProcess.ts
+  s_26f5e669d3043c::t_6561bdfd208a75 62-69,166-181,232-235,239,282,382
+vendor/gitstudio/git-service/src/HistoryProvider.ts
+  s_26f5e669d3043c::t_aebd1878cc9b0e 26-28,31-35,38-47,93,100,111,187-223
+vendor/gitstudio/git-service/src/RebaseRunner.ts
+  s_26f5e669d3043c::t_ed1541efa5502c 142
+vendor/gitstudio/git-service/src/RemoteOps.ts
+  s_26f5e669d3043c::t_65ad81031d7b43 28-40
+vendor/gitstudio/git-service/src/SnapshotProvider.ts
+  s_26f5e669d3043c::t_71fbe784a368d2 1-3,5-15,18-20,22-37,44-260,263-280,282-284,290-292,294-307,309-313,315-317,319-330,333-354,358-361,363-396,398-439,441-447,449-619,622-819,823-851,854,857,866-1278,1280-1404,1415,1420-1513
+vendor/gitstudio/git-service/src/StagingProvider.ts
+  s_26f5e669d3043c::t_c69b8a331e31e5 1,3,5,98,112-145,152,159-160,201,262,304-305,359-380,425-428,431
+vendor/gitstudio/git-service/src/StashProvider.ts
+  s_26f5e669d3043c::t_0ecaa950d65ee9 1-3,5,54-189,268-270,435-467,473-478,485-494,501-711,713-762,765-812,814,818-825,833-950
+vendor/gitstudio/git-service/src/StatusProvider.ts
+  s_26f5e669d3043c::t_13b484675138c9 8-9,108,170-171,175,178,182
+vendor/gitstudio/git-service/src/SyncOps.ts
+  s_26f5e669d3043c::t_354ddd90a7fa0d 40-49,415-424
+vendor/gitstudio/git-service/src/WorktreeProvider.ts
+  s_26f5e669d3043c::t_16028f52c57066 1-3,5-19,33-35,38-39,58-59,61-85,88-127,131-138,149-157,159-169,179-203,205,221-223,226,230-233,235,237-241,243-245,249-281,300-518,524-527,530,535,541,555-561,565,567,626-630,636-638,648-731
+vendor/gitstudio/git-service/src/branchElsewhere.ts
+  s_26f5e669d3043c::t_c315f4c14152c2 1-50
+vendor/gitstudio/git-service/src/branchReset.ts
+  s_26f5e669d3043c::t_893f3a6e9635ab 1-487
+vendor/gitstudio/git-service/src/changesInTheWay.ts
+  s_26f5e669d3043c::t_e9e28b00e26b7b 4,54,56-63,85-90,94-120,137-140,162,165-213,245-253,282,284-292,295-306,312-316,328-336,338,340-352,363-402,503-580,665-670,713-722,767-776,812-817,837-839,851-853,881-886,900,910,913,918-920,924-926,1130-1144,1152-1165,1167-1170,1175-1215
+vendor/gitstudio/git-service/src/checkoutRef.ts
+  s_26f5e669d3043c::t_886597f3219d7c 39-42,138,144-149
+vendor/gitstudio/git-service/src/checkoutRemote.ts
+  s_26f5e669d3043c::t_17d95133aa6354 31-33,82,90
+vendor/gitstudio/git-service/src/dropCommit.ts
+  s_26f5e669d3043c::t_63587785f05ce6 1-567
+vendor/gitstudio/git-service/src/folderPath.ts
+  s_26f5e669d3043c::t_84211033c8537f 1-89
+vendor/gitstudio/git-service/src/index.ts
+  s_26f5e669d3043c::t_2d490fef4374e1 58,65-86,91-93
+vendor/gitstudio/git-service/src/indexWrites.ts
+  s_26f5e669d3043c::t_785f08046aa1b3 1-84
+vendor/gitstudio/git-service/src/multiCommit.ts
+  s_26f5e669d3043c::t_0ccf3802b9ee39 1-327
+vendor/gitstudio/git-service/src/prBranch.ts
+  s_26f5e669d3043c::t_1e8366fa033bf0 1-413
+vendor/gitstudio/git-service/src/prCheckout.ts
+  s_26f5e669d3043c::t_2c4be6eea44ba0 1-223
+vendor/gitstudio/git-service/src/rebasePlan.ts
+  s_26f5e669d3043c::t_d1c8a91cd53956 55-64,145,153
+vendor/gitstudio/git-service/src/refRestore.ts
+  s_26f5e669d3043c::t_7d7989946218e8 1-150
+vendor/gitstudio/git-service/src/sshAliases.ts
+  s_26f5e669d3043c::t_1fd194e57ca4d9 1-59
+vendor/gitstudio/git-service/src/stashRestore.ts
+  s_26f5e669d3043c::t_e301840647cfa2 1-133
+vendor/gitstudio/git-service/src/stoppedOperation.ts
+  s_26f5e669d3043c::t_a32041d8804465 29-42,120-122
+vendor/gitstudio/git-service/src/worktreeState.ts
+  s_26f5e669d3043c::t_53c866aad544df 1-373
+vendor/gitstudio/host-bridge/package.json
+  s_26f5e669d3043c::t_6d2997b31d0ff2 11
+vendor/gitstudio/host-bridge/src/blame.ts
+  s_26f5e669d3043c::t_7a6f2f80f0743c 20-24
+vendor/gitstudio/host-bridge/src/branchElsewhere.ts
+  s_26f5e669d3043c::t_a5e1127807e8eb 1-30
+vendor/gitstudio/host-bridge/src/changeRows.ts
+  s_26f5e669d3043c::t_75038035eaf987 1-51
+vendor/gitstudio/host-bridge/src/graphProtocol.ts
+  s_26f5e669d3043c::t_e239ff79b5f5ff 121-133,223-228,235-246,255,311-323,330-336,350-353
+vendor/gitstudio/host-bridge/src/graphSelection.ts
+  s_26f5e669d3043c::t_4197058d7a9ac0 1-42
+vendor/gitstudio/host-bridge/src/prProtocol.ts
+  s_26f5e669d3043c::t_dbe827f87c0648 1-669
+vendor/gitstudio/host-bridge/src/rebaseProtocol.ts
+  s_26f5e669d3043c::t_5793f8b4010a5d 34-41
+vendor/gitstudio/host-bridge/src/settleLatest.ts
+  s_26f5e669d3043c::t_ab24be6562f723 1-37
+vendor/gitstudio/host-bridge/src/worktreeRemoval.ts
+  s_26f5e669d3043c::t_0c2fd3c2d9be7c 1-318
+vendor/gitstudio/host-bridge/src/worktreesProtocol.ts
+  s_26f5e669d3043c::t_41df53cf61311b 1-550
+vendor/gitstudio/merge-vscode/package.json
+  s_26f5e669d3043c::t_960dad8ca31578 11
+vendor/gitstudio/merge-vscode/src/mergeSession.ts
+  s_26f5e669d3043c::t_d64449d9ab7618 139-141
+vendor/gitstudio/merge-vscode/src/product.ts
+  s_26f5e669d3043c::t_617799b49be18d 210-216
+vendor/gitstudio/merge-vscode/src/register.ts
+  s_26f5e669d3043c::t_f4c2f7379a1728 13,116-118,124,163-164,179-183
+vendor/gitstudio/webview-ui/package.json
+  s_26f5e669d3043c::t_9edbba8f8ed724 13
+vendor/gitstudio/webview-ui/src/changeRows/changeRows.css
+  s_26f5e669d3043c::t_358ad1228b6f20 1-232
+vendor/gitstudio/webview-ui/src/changeRows/changeRows.ts
+  s_26f5e669d3043c::t_2ac002a661685a 1-268
+vendor/gitstudio/webview-ui/src/changeRows/global.ts
+  s_26f5e669d3043c::t_c8f3f510a016eb 1-16
+vendor/gitstudio/webview-ui/src/commit-details.ts
+  s_26f5e669d3043c::t_773d6fcf19f323 86-124,128,133-134,159,202-203,760-812,816-820,837-839,1231-1292,1333
+vendor/gitstudio/webview-ui/src/conflicts/main.ts
+  s_26f5e669d3043c::t_8bf3e59d947a38 21,29-31
+vendor/gitstudio/webview-ui/src/graph/commit-graph.ts
+  s_26f5e669d3043c::t_57ee989db0b36f 76-88,172-174,229-234,242-246,689-693,695-696,740-757,759-765,1041-1042,1121,1250-1251,1261-1269,1271-1272,1274-1303,1305,1307-1318,1344,1504,1555-1558,1564,1566-1570,1699-1703,1791-1793,1808-1811,1813-1815,1828-1829,1834-1836,1838-1844,1969-1979,2030-2031,2125-2132,2156,2163-2174,2197-2207,2224-2239,2258-2268,2272-2287,2841-2842,2851-2853,2858-2869,3311-3312,3324,3543-3548,3553-3555,3562-3608,3617,3636-3637,3640-3656,3731-3732,3920-3927,3933,3936,3939,3942-3951,3953-3966,3970-3977,3980,3996,4016,4018,4162-4164,4576-4590,4609,4646,4649,4652-4654,4656,4658-4659,4661
+vendor/gitstudio/webview-ui/src/graph/commit-rail.ts
+  s_26f5e669d3043c::t_bbafb011fa7890 72-83,118-119,123-126,151-152,157-158,363-370,376-383,385-410,417-434,508,631-636,667,693-703,705,742-755,922-925,927-928,995-997,1031-1032,1034-1036,1086-1090,1153-1154,1199-1203,1219,1226-1235,1258-1268,1284-1314,1369-1370,1380,1450,1607-1613,1634,1637-1652,1654-1655,1667-1669,1699-1701,1709-1711,1720-1724,1726,1786,1794,1798-1815,1823-1824,1832-1833,1845-1855,1983,1992,2072-2078,2440,2459,2481-2482,2523-2543
+vendor/gitstudio/webview-ui/src/graph/main.ts
+  s_26f5e669d3043c::t_86e2d08bd1ee52 7,13-14,21-23,82-83,90-103,110-112,121,127-132,190,192-193,204-210,216-217,316-322,359-363,383,387-395
+vendor/gitstudio/webview-ui/src/graph/multiSelect.ts
+  s_26f5e669d3043c::t_ea2a8d1581dd4a 1-166
+vendor/gitstudio/webview-ui/src/graph/selectionSummary.ts
+  s_26f5e669d3043c::t_e000f089268b47 1-17
+vendor/gitstudio/webview-ui/src/graph/sidebar-main.ts
+  s_26f5e669d3043c::t_bf788053b6aca5 7,17-19,48-49,58,95-101,121,135
+vendor/gitstudio/webview-ui/src/main.ts
+  s_26f5e669d3043c::t_9526a533011649 7,22-24
+vendor/gitstudio/webview-ui/src/markdown.ts
+  s_26f5e669d3043c::t_b35bc2da1394c7 1-695
+vendor/gitstudio/webview-ui/src/pr/create-main.ts
+  s_26f5e669d3043c::t_a73add2ba2b73b 1-52
+vendor/gitstudio/webview-ui/src/pr/list-main.ts
+  s_26f5e669d3043c::t_9adbd421066f4f 1-55
+vendor/gitstudio/webview-ui/src/pr/page-main.ts
+  s_26f5e669d3043c::t_b79084f445fc96 1-55
+vendor/gitstudio/webview-ui/src/pr/prCreate.ts
+  s_26f5e669d3043c::t_dabe3370cd15fb 1-1068
+vendor/gitstudio/webview-ui/src/pr/prList.ts
+  s_26f5e669d3043c::t_61daa74baaf817 1-1259
+vendor/gitstudio/webview-ui/src/pr/prPage.ts
+  s_26f5e669d3043c::t_861dc3e670166a 1-1826
+vendor/gitstudio/webview-ui/src/rebase/main.ts
+  s_26f5e669d3043c::t_bcbd478a058790 6,15-17,54
+vendor/gitstudio/webview-ui/src/rebase/plan-global.ts
+  s_26f5e669d3043c::t_d7bfdeb947f2a6 1-18
+vendor/gitstudio/webview-ui/src/rebase/rebase-view.ts
+  s_26f5e669d3043c::t_8457cdb9af0ab7 13-22,27-48,54-55,79,83-85,88-132,134-155,273-393,397-398,401-403,410-412,634-648,667-689,693-701,704,710-717,723-724,732-744,748-749,751-752,759-762,777-778,785-790,800-803,809-812,826-854,856-862,865-891,895-933,935-972,974-975,977-992,997-1002,1005-1007,1012,1014-1019,1028,1034,1040-1042,1045-1046,1050,1053
+vendor/gitstudio/webview-ui/src/rebase/rebase.css
+  s_26f5e669d3043c::t_94de35a3d669e4 39-42,44-45
+vendor/gitstudio/webview-ui/src/styles/codicons.ts
+  s_26f5e669d3043c::t_ecdc7e1d5b7bbd 32-35,54-55
+vendor/gitstudio/webview-ui/src/styles/diff.css
+  s_26f5e669d3043c::t_44901478c5e272 616-620,624-628
+vendor/gitstudio/webview-ui/src/styles/hostTokens.ts
+  s_26f5e669d3043c::t_bd4ece2f03e14f 38,70-77,89-100
+vendor/gitstudio/webview-ui/src/styles/pr-create.css
+  s_26f5e669d3043c::t_8dccad7d14ee20 1-526
+vendor/gitstudio/webview-ui/src/styles/pr-list.css
+  s_26f5e669d3043c::t_b79af755ae80f3 1-948
+vendor/gitstudio/webview-ui/src/styles/pr-page.css
+  s_26f5e669d3043c::t_9c504caee1c0a8 1-1673
+vendor/gitstudio/webview-ui/src/styles/solidAccent.ts
+  s_26f5e669d3043c::t_2ced66e7b4f1c7 1-77
+vendor/gitstudio/webview-ui/src/styles/tokens.css
+  s_26f5e669d3043c::t_ee89f02f05063b 77-79,135-166,199-214,358,368-369,372-380
+vendor/gitstudio/webview-ui/src/worktrees/main.ts
+  s_26f5e669d3043c::t_17b12521287880 1-40
+vendor/gitstudio/webview-ui/src/worktrees/view.ts
+  s_26f5e669d3043c::t_846d6a1ca3a8a1 1-1073
+vendor/gitstudio/webview-ui/src/worktrees/worktrees.css
+  s_26f5e669d3043c::t_b09dbbc8e7af0d 1-572
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "2b8efad2c1e40f67d8c1bb762905fa5c7075f029",
+  "prompts": {},
+  "sessions": {
+    "s_26f5e669d3043c": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "84d5bd8e-bf89-4d7c-9932-e410f3e06481",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Anton Arnaudov <anton.arnaudov.me@gmail.com>"
+    }
+  }
+}
