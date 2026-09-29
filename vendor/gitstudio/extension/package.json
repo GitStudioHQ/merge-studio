@@ -2,7 +2,7 @@
   "name": "gitstudio",
   "displayName": "GitStudio \u2014 JetBrains-style Git Graph, Blame & Merge",
   "description": "Free, open-source Git GUI & commit graph for VS Code and Cursor. Git Studio brings a JetBrains-style Git workflow into the editor \u2014 inline blame, file history, hunk & line staging, 3-pane merge, interactive rebase with universal Undo, stash/shelf, worktrees, and in-editor GitHub PRs. A free alternative to GitLens, GitKraken & Sourcetree.",
-  "version": "1.16.0",
+  "version": "1.17.0",
   "publisher": "gitstudio",
   "license": "Apache-2.0",
   "icon": "media/icon.png",
@@ -1052,6 +1052,12 @@
             "default": "squash",
             "description": "Default method offered first when merging a pull request.",
             "order": 4
+          },
+          "gitstudio.avatars.gravatar": {
+            "type": "boolean",
+            "default": true,
+            "markdownDescription": "Show commit authors' pictures in the Commit Graph, the Commits view and commit details. To find one, GitStudio sends an MD5 hash of each author's email address to Gravatar (`www.gravatar.com`, run by Automattic); for a GitHub noreply address (`…@users.noreply.github.com`) it asks GitHub (`avatars.githubusercontent.com`) for that account's picture instead. Turn this off to show every author as coloured initials and send neither request. While you are signed in to GitHub, the pictures GitHub itself returns (on pull requests, and for the authors of a GitHub repository's recent commits) still show. See [PRIVACY.md](https://github.com/GitStudioHQ/gitstudio/blob/main/apps/extension/PRIVACY.md).",
+            "order": 5
           }
         }
       },
@@ -1361,7 +1367,7 @@
           "gitstudio.errorReporting.enabled": {
             "type": "boolean",
             "default": true,
-            "markdownDescription": "Send **anonymous, scrubbed crash reports** when a GitStudio command fails, so we can find and fix bugs during the beta without waiting for someone to file a report. No identity, repo contents, file names, commit messages, branch names, or remotes are ever collected \u2014 only the shape of a failure (error type/message/stack or the failed operation), tagged with a random install id and your OS/editor version. Reports are also gated by VS Code's global `telemetry.telemetryLevel`: set that to `off` to disable regardless of this toggle. Turn this off to opt out entirely.",
+            "markdownDescription": "Send **anonymous, scrubbed crash reports** when a GitStudio command fails, so we can find and fix bugs during the beta without waiting for someone to file a report. Only the shape of a failure is sent (error type/message/stack or the failed operation), tagged with a random install id and your OS/editor version, and it is scrubbed first: paths, file and branch names, commit subjects, emails, tokens and remote repository names are taken out wherever the scrubber recognises them (a remote's host name, such as github.com, is kept). See [PRIVACY.md](https://github.com/GitStudioHQ/gitstudio/blob/main/apps/extension/PRIVACY.md). Reports are also gated by VS Code's global `telemetry.telemetryLevel`: set that to `off` to disable regardless of this toggle. Turn this off to opt out entirely.",
             "order": 1
           },
           "gitstudio.errorReporting.endpoint": {
