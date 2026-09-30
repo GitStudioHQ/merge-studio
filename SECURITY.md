@@ -1,66 +1,59 @@
-# Security Policy
-
-## Supported versions
-
-Merge Studio is distributed through the Visual Studio Marketplace and Open VSX.
-Security fixes are released against the latest published version, so please make
-sure you are on the most recent release before reporting an issue.
-
-| Version | Supported          |
-| ------- | ------------------ |
-| 0.3.x   | :white_check_mark: |
-| < 0.3   | :x:                |
+# Security policy
 
 ## Reporting a vulnerability
 
-**Please do not report security vulnerabilities through public GitHub issues,
-discussions, or pull requests.**
+**Please don't report a security problem in a public issue, discussion or pull
+request.**
 
-Instead, use GitHub's private vulnerability reporting:
+Report it privately through GitHub instead: open this repository's
+[**Security** tab](https://github.com/GitStudioHQ/merge-studio/security) and
+click **Report a vulnerability**
+([direct link](https://github.com/GitStudioHQ/merge-studio/security/advisories/new)).
+Only you and the maintainers can see the report and what follows.
 
-1. Open the [Security tab](https://github.com/GitStudioHQ/merge-studio/security)
-   of this repository.
-2. Click **Report a vulnerability**.
-3. Fill in the advisory form.
+It helps to include, as far as you can:
 
-This opens a private channel visible only to you and the maintainers.
-
-When reporting, please include as much of the following as you can:
-
-- A description of the vulnerability and its impact.
-- The Merge Studio version, the VS Code version, and your operating system.
-- Step-by-step instructions to reproduce, ideally with a minimal repository or
-  the branch / file names that trigger the issue.
-- Any proof-of-concept code, screenshots, or logs.
+- what the problem is, and what an attacker could do with it;
+- the Merge Studio version, your editor and its version, and your operating
+  system;
+- how to reproduce it: ideally a small repository, or the branch or file names
+  that trigger it;
+- a proof of concept, screenshots or logs.
 
 ## What to expect
 
-- We aim to acknowledge new reports within **5 business days**.
-- After triage we will keep you updated on progress toward a fix and agree a
-  disclosure timeline with you.
-- Valid reports are credited in the release notes unless you would rather stay
+- We aim to acknowledge a new report within 5 business days.
+- After triage we keep you updated on the fix, and agree with you when the
+  problem becomes public.
+- The fix ships in a new release of Merge Studio.
+- Valid reports are credited in the release notes, unless you'd rather stay
   anonymous.
 
-## Scope and threat model
+## Supported versions
 
-Merge Studio is a client-side VS Code extension. It runs git operations locally
-and renders merge / diff state inside a VS Code webview. Reports we are
-especially interested in include, but are not limited to:
+Merge Studio is distributed through the VS Code Marketplace and Open VSX.
+Security fixes go into the **latest version**, so please update before you
+report.
 
-- Code execution or injection (for example XSS) in the extension's webviews via
-  attacker-influenceable repository content — branch names, file paths, file
-  contents, or commit metadata.
-- Escaping the webview sandbox or the extension host's expected privileges.
-- Mishandling of local files or git state that could lead to data loss or
-  unintended command execution.
+## Scope
 
-Issues that require a malicious VS Code extension to already be running, physical
-access to an unlocked machine, or social engineering of the user are generally
-considered out of scope.
+Merge Studio runs git on your computer and shows merges and diffs in your
+editor's webviews. We especially want to hear about:
 
-## Dependencies
+- code running, or markup being injected into a webview, because of what is in
+  a repository: branch names, file paths, file contents, commit metadata;
+- anything that escapes a webview's sandbox or the extension's expected
+  permissions;
+- mishandling of files or git state that loses work or runs a command you
+  didn't ask for.
 
-Merge Studio bundles third-party code (notably the Monaco editor). Dependency
-vulnerabilities are tracked with GitHub Dependabot and patched in regular
-releases. If you find a vulnerable dependency that is reachable through Merge
-Studio, please report it using the process above.
+Out of scope: problems that need a malicious extension already running in the
+same editor, physical access to an unlocked computer, or social engineering;
+and vulnerabilities in Git, the editor or its webviews themselves (report
+those to them, and tell us if Merge Studio makes one easier to reach).
+
+Merge Studio's merge code is shared with [GitStudio](https://github.com/GitStudioHQ/gitstudio),
+and a fix lands in both. If a vulnerable dependency it bundles (notably the
+Monaco editor) is reachable through Merge Studio, report it the same way.
+
+What Merge Studio sends over the network: nothing. See [PRIVACY.md](PRIVACY.md).
