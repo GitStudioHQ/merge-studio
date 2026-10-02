@@ -36,6 +36,9 @@
       ],
       "@gitstudio/merge-vscode/*": [
         "./vendor/gitstudio/merge-vscode/src/*"
+      ],
+      "@gitstudio/l10n/*": [
+        "./vendor/gitstudio/l10n/src/*"
       ]
     }
   },
