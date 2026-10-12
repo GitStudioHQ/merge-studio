@@ -82,6 +82,10 @@ The dashboard opens the moment a merge, rebase, cherry-pick, revert, git am or s
 <p align="center"><img src="media/screenshots/diff.png" alt="The sample side-by-side diff: before on the left, after on the right, line-aligned, changed lines in blue with the changed words highlighted, a removed line in grey and an added line in green."></p>
 
 - **Compare in Merge Studio**: select two files in the Explorer, or compare one file with its last commit.
+- Set `jbMerge.useAsDefaultDiffViewer` to `true` to use this viewer automatically
+  for VS Code text diffs: Source Control changes, Explorer comparisons, history,
+  and file or Git revision diffs other extensions open with `vscode.diff`.
+  Diffs GitStudio opens from its own views keep VS Code's diff editor.
 - **Open Changes in Merge Studio** from a changed file's title bar, and **Stage Changes with Ticks** to stage it one change at a time.
 - The same ribbons and navigation as the merge editor, re-diffed live as you edit. With no decision to make, a diff colours a change by what it did: blue changed, green added, grey removed.
 
@@ -95,6 +99,7 @@ Run **Merge Studio: Open Sample Merge** from the Command Palette. A rebase stop 
 | --- | --- |
 | F7 / Shift+F7 | Next / previous change |
 | Cmd+Z / Shift+Cmd+Z (Ctrl on Windows and Linux) | Undo / redo a merge action |
+| Cmd+C / Cmd+V / Cmd+X (Ctrl on Windows and Linux) | Copy / paste / cut in the center result editor. Side panes support copy only. |
 | Enter or Space on a focused gutter button | Take that change (» or «), or ignore it (✕) |
 
 ## Settings
@@ -103,6 +108,23 @@ Run **Merge Studio: Open Sample Merge** from the Command Palette. A rebase stop 
 | --- | --- | --- |
 | `jbMerge.autoOpen` | `true` | Open conflicted files in Merge Studio and show the Conflicts dashboard when an operation stops. |
 | `jbMerge.autoApplyNonConflicting` | `false` | When a file opens, apply every change only one side made, and every edit both sides made identically. Conflicts are never applied automatically. |
+| `jbMerge.useAsDefaultDiffViewer` | `false` | Redirect VS Code text-diff tabs into Merge Studio, independently of conflict auto-open. |
+
+The default diff viewer uses the exact original and modified revisions, not
+always HEAD versus the working tree. When enabled, it redirects the text diff
+in front of each editor group (the others when you bring them forward) and new
+text diffs thereafter, in their original editor group. VS Code
+may briefly show its native tab before redirection; its stable extension API
+does not provide a custom diff-editor registration. Binary and custom-editor
+diffs stay native, and a diff that cannot be loaded keeps its native tab. So do
+diffs of other extensions' own documents (pull request reviews, AI edits), and
+diffs GitStudio opens from its own views (a GitStudio released together with
+this setting tells Merge Studio which those are).
+Read-only revision documents remain read-only. Unsaved source tabs are kept;
+editing a writable right side opens its text document in a background tab so
+normal Save, Save All and close prompts remain available. Turn the setting off
+to use VS Code for future diffs; already-open Merge Studio comparisons stay open.
+If both extensions enable their default diff viewer, GitStudio handles diffs.
 
 ## Using GitStudio too?
 

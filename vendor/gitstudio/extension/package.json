@@ -2,7 +2,7 @@
   "name": "gitstudio",
   "displayName": "%displayName%",
   "description": "%description%",
-  "version": "1.18.0",
+  "version": "1.19.0",
   "publisher": "gitstudio",
   "license": "Apache-2.0",
   "icon": "media/icon.png",
@@ -1233,6 +1233,13 @@
             "markdownDescription": "%config.gitstudio.merge.autoOpen.markdownDescription%",
             "order": 1
           },
+          "gitstudio.merge.useAsDefaultDiffViewer": {
+            "type": "boolean",
+            "default": false,
+            "scope": "window",
+            "order": 3,
+            "markdownDescription": "%config.gitstudio.merge.useAsDefaultDiffViewer.markdownDescription%"
+          },
           "gitstudio.merge.autoApplyNonConflicting": {
             "type": "boolean",
             "default": false,
@@ -1607,13 +1614,6 @@
           "group": "navigation@1"
         }
       ],
-      "scm/inputBox": [
-        {
-          "command": "gitstudio.ai.generateCommitMessage",
-          "when": "scmProvider == git && gitstudio.ai.enabled",
-          "group": "navigation"
-        }
-      ],
       "explorer/context": [
         {
           "command": "gitstudio.compare",
@@ -1649,22 +1649,22 @@
         },
         {
           "command": "gitstudio.stageSelectedLines",
-          "when": "resourceScheme == file && scmActiveResourceHasChanges",
+          "when": "resourceScheme == file && (scmActiveResourceHasChanges || isInDiffEditor && !editorReadonly && !isEmbeddedDiffEditor && diffEditorOriginalUri =~ /^(gitstudio-rev|git):/)",
           "group": "2_staging@1"
         },
         {
           "command": "gitstudio.unstageSelectedLines",
-          "when": "resourceScheme == file && scmActiveResourceHasChanges",
+          "when": "resourceScheme == file && (scmActiveResourceHasChanges || isInDiffEditor && !editorReadonly && !isEmbeddedDiffEditor && diffEditorOriginalUri =~ /^(gitstudio-rev|git):/)",
           "group": "2_staging@2"
         },
         {
           "command": "gitstudio.stageHunk",
-          "when": "resourceScheme == file && scmActiveResourceHasChanges",
+          "when": "resourceScheme == file && (scmActiveResourceHasChanges || isInDiffEditor && !editorReadonly && !isEmbeddedDiffEditor && diffEditorOriginalUri =~ /^(gitstudio-rev|git):/)",
           "group": "2_staging@3"
         },
         {
           "command": "gitstudio.unstageHunk",
-          "when": "resourceScheme == file && scmActiveResourceHasChanges",
+          "when": "resourceScheme == file && (scmActiveResourceHasChanges || isInDiffEditor && !editorReadonly && !isEmbeddedDiffEditor && diffEditorOriginalUri =~ /^(gitstudio-rev|git):/)",
           "group": "2_staging@4"
         }
       ],
@@ -1803,19 +1803,19 @@
         },
         {
           "command": "gitstudio.stageSelectedLines",
-          "when": "editorTextFocus && gitstudio.hasRepo"
+          "when": "gitstudio.hasRepo && resourceScheme == file"
         },
         {
           "command": "gitstudio.unstageSelectedLines",
-          "when": "editorTextFocus && gitstudio.hasRepo"
+          "when": "gitstudio.hasRepo && resourceScheme == file"
         },
         {
           "command": "gitstudio.stageHunk",
-          "when": "editorTextFocus && gitstudio.hasRepo"
+          "when": "gitstudio.hasRepo && resourceScheme == file"
         },
         {
           "command": "gitstudio.unstageHunk",
-          "when": "editorTextFocus && gitstudio.hasRepo"
+          "when": "gitstudio.hasRepo && resourceScheme == file"
         },
         {
           "command": "gitstudio.startInteractiveRebase",
@@ -2199,7 +2199,7 @@
         },
         {
           "command": "gitstudio.toggleStageAtLine",
-          "when": "editorTextFocus && gitstudio.hasRepo"
+          "when": "gitstudio.hasRepo && resourceScheme == file"
         },
         {
           "command": "gitstudio.openTerminal",
@@ -2260,7 +2260,7 @@
         },
         {
           "command": "gitstudio.toggleStageAtLine",
-          "when": "gitstudio.hasRepo && resourceScheme == file && scmActiveResourceHasChanges",
+          "when": "gitstudio.hasRepo && resourceScheme == file && (scmActiveResourceHasChanges || isInDiffEditor && !editorReadonly && !isEmbeddedDiffEditor && diffEditorOriginalUri =~ /^(gitstudio-rev|git):/)",
           "group": "1_gitstudio@2"
         }
       ],
