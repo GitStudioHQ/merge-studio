@@ -41,6 +41,14 @@ const ACTION_ROW_HEIGHT = 16;
 const REDIFF_DELAY_MS = 200;
 
 const SHARED_OPTIONS: monaco.editor.IStandaloneEditorConstructionOptions = {
+  // Monaco's classic textarea, not Chromium's EditContext: the right pane is
+  // editable, and VS Code delivers Cut / Paste to a webview as execCommand,
+  // which an EditContext element ignores — see SHARED_OPTIONS in mergeView.ts.
+  editContext: false,
+  // Paste as plain text, there and then. Monaco's "paste as" path (a widget
+  // to pick a paste format) applies the text later, from a promise, which no
+  // one here needs and which raced every check of what a paste did.
+  pasteAs: { enabled: false },
   automaticLayout: false,
   minimap: { enabled: false },
   scrollBeyondLastLine: false,

@@ -2,7 +2,7 @@
   "name": "merge-studio",
   "displayName": "%displayName%",
   "description": "%description%",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "publisher": "gitstudio",
   "license": "MIT AND Apache-2.0",
   "icon": "media/icon.png",
@@ -112,6 +112,13 @@
           "default": false,
           "order": 2,
           "description": "%config.jbMerge.autoApplyNonConflicting.description%"
+        },
+        "jbMerge.useAsDefaultDiffViewer": {
+          "type": "boolean",
+          "default": false,
+          "scope": "window",
+          "order": 3,
+          "markdownDescription": "%config.jbMerge.useAsDefaultDiffViewer.markdownDescription%"
         }
       }
     },
