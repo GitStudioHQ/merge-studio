@@ -2,7 +2,7 @@
   "name": "merge-studio",
   "displayName": "%displayName%",
   "description": "%description%",
-  "version": "1.4.1",
+  "version": "1.4.2",
   "publisher": "gitstudio",
   "license": "MIT AND Apache-2.0",
   "icon": "media/icon.png",
@@ -256,6 +256,16 @@
       {
         "viewType": "jbMerge.mergeEditor",
         "displayName": "%customEditor.jbMerge.mergeEditor.displayName%",
+        "selector": [
+          {
+            "filenamePattern": "*.jbmerge-merge"
+          }
+        ],
+        "priority": "option"
+      },
+      {
+        "viewType": "jbMerge.diffEditor",
+        "displayName": "%customEditor.jbMerge.diffEditor.displayName%",
         "selector": [
           {
             "filenamePattern": "*"
