@@ -177,6 +177,30 @@ Merge Studio is free. If it saves you a bad merge:
 - [Sponsor on GitHub](https://github.com/sponsors/antonarnaudov): recurring support
 - [Buy me a coffee](https://checkout.revolut.com/pay/7a6070ab-99ba-4170-a125-c5911b1a5c1d): a one-off tip
 
+## 💚 Sponsors & Supporters
+
+Merge Studio is free and open source. The AI tokens, hosting and tooling behind it come out of my own pocket — sponsoring covers those costs and moves your issues and feature requests up the queue.
+
+**[Become a sponsor →](https://github.com/sponsors/antonarnaudov)**
+
+### 🏢 Company sponsors
+
+<!-- $100/mo and $250 one-time sponsors: company logo + link -->
+
+_Your company's logo could be here._
+
+### ⭐ Sponsors
+
+<!-- $50+ sponsors: avatar + link -->
+
+_Be the first._
+
+### 📜 Supporters
+
+<!-- $10+ sponsors: name -->
+
+_Be the first._
+
 ## License
 
 Merge Studio's own files are [MIT](LICENSE). It bundles GitStudio's shared merge packages, which are [Apache-2.0](LICENSE-APACHE); see [NOTICE](NOTICE). The source is developed in [GitStudioHQ/gitstudio](https://github.com/GitStudioHQ/gitstudio) (`apps/merge-studio`, with the shared `packages/*`); see [CONTRIBUTING.md](CONTRIBUTING.md).
